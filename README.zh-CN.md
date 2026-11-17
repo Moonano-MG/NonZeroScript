@@ -71,22 +71,19 @@
 
 ## 下载与安装（共三部分）
 
-> [`dist/`](dist) 里有三个独立的压缩包，外加 `SHA256SUMS.txt` 校验文件。
+> 下载物由 GitHub 每次推送时自动构建：打开 [Actions → 构建 Build](../../actions/workflows/build.yml) → 最新一次运行 → 页面底部的 **Artifacts**（GitHub 已经把每个下载物打包成 zip，点名字单独下载）。也可以点 *Run workflow* 现场构建。三个下载物，拿到手就是最终形态：
 >
-> | 压缩包 | 是什么 | 放哪里 |
+> | 下载物 | 是什么 | 怎么用 |
 > |---|---|---|
-> | **`controller.zip`** | 可视化操控台 + 本地中转 | 放哪都行，双击启动脚本 |
-> | **`extension.zip`** | Chrome / Edge 插件（给 AI 的基本指令就在里面） | 加载已解压，文件夹保留 |
-> | **`editor-godot-4.7.2.zip`** | Godot 4.7.2 插件（它的命令和编辑器指令就在里面） | 项目的 `addons/nonzeroscript` |
->
-> 每个包里都有自己的 `INSTALL.txt`。解压后按下面三步装好即可。
+> | **`controller.exe`** | 整个控制器（可视化操控台 + 本地中转）一个 Windows 程序 | 双击即用，**不需要装 Python** |
+> | **`extension`** | Chrome **和** Edge 通用的插件文件夹（给 AI 的基本指令就在里面） | 加载已解压 → 选 `extension` 文件夹 |
+> | **`editor-godot-4.7.2`** | Godot 插件，就是 `addons/nonzeroscript/`（标准 GDScript，命令和编辑器指令在里面） | 把 `addons/` 复制进项目根目录，启用插件 |
 >
 > **平台说明：** 目前只提供 **Windows 10/11（64 位）** 版本，其他平台暂不支持。
 
 ### 1. 中转 + 可视化操控台
 
-- 安装 **Python 3.9 或更新版本**（[python.org/downloads](https://www.python.org/downloads/)），不需要 `pip install`，只用标准库。
-- 打开 `controller` 文件夹，双击 **`start.bat`**（Windows 10/11，64 位）。
+- 双击 **`controller.exe`**。它就是完整的程序，不需要安装任何其他东西。
 - 会打开一个控制台窗口，并自动在浏览器打开 **http://127.0.0.1:8790/**（可视化操控台）。
 
 > 使用期间请保持这个窗口开启。关闭窗口就会停止中转。修改端口后需要重启。
@@ -98,11 +95,11 @@
 3. 点击 **加载已解压的扩展程序**，选择 `extension` 文件夹。
 4. 建议把 NonZeroScript 固定到工具栏。
 
-解压后的 `extension` 文件夹就是插件本体，直接加载即可。
+`extension` 文件夹就是插件本体（Chrome 和 Edge 通用），直接加载即可。
 
 ### 3. Godot 4.7.2 编辑器插件
 
-1. 在发布压缩包（或仓库里的 `editor/godot-4.7.2`）中找到插件，把它复制到你的 Godot 项目，使路径变成：
+1. `editor-godot-4.7.2` 下载物里就是 `addons/nonzeroscript/`。把 `addons` 文件夹复制到你的 Godot 项目，使路径变成：
 
    ```
    your_project/
@@ -125,7 +122,7 @@
 
 1. **创建项目。** 打开 Godot 4.7.2，新建项目（例如 `MyFirstGame`）并打开。
 2. **安装插件。** 按上面的第 3 步复制 `addons/nonzeroscript`，并在“项目设置 → 插件”里启用。
-3. **启动中转。** 双击 `controller/start.bat`。操控台自动打开。
+3. **启动中转。** 双击 `controller.exe`。操控台自动打开。
 4. **连接浏览器。** 加载插件后打开 **https://chat.deepseek.com**（推荐）或任意支持的 AI，**新建对话**，点击输入框上方的 **启动**。状态栏变绿并显示“已就绪 · 等待操控台派发任务”。
 5. **在操控台添加任务。** 例如：
 
@@ -305,7 +302,6 @@ public partial class Player : CharacterBody2D
 - **Godot 4.7.2**（插件按 4.7.2 编写；相邻 4.x 版本或许可用，但未测试）
 - C# 项目另需 **Godot 4.7.2 的 .NET 版**和 .NET SDK；纯 GDScript 项目不需要
 - **Chrome 或 Edge**（Chromium 111+，Edge 使用同一个插件包）
-- **Python 3.9+**（中转，仅标准库）
 - **Windows 10/11（64 位）** —— 目前唯一提供的平台
 - **不支持 Linux**，也没有 Linux 安装包或启动脚本
 

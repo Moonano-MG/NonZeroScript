@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """NonZeroScript controller - visual console + local relay.
 
-Run by double-clicking start.bat (Windows 10/11) or start.command (macOS), or:
+Shipped as controller.exe (PyInstaller one-file, Windows 10/11 64-bit) -
+double-click it and the console opens at 127.0.0.1:8790. From source:
 
     python main.py                 # 127.0.0.1:8790, opens the console
     python main.py --host 0.0.0.0  # only for a sandbox/remote demo

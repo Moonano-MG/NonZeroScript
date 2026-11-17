@@ -2,6 +2,16 @@
 
 版本号固定为 **v0.1.0-dev**（持续开发版），不发布新的版本号；下面按时间倒序记录用户可见的变化。
 
+## 2026-11-15 — 下载物改成最终形态
+
+### 变化
+
+- **不再自己打 zip**：GitHub 的 Artifacts 下载时本来就会打包成 zip，仓库里不再放压缩包。
+- **`controller.exe`**：控制器编译成单个 Windows 程序（双击即用，不需要装 Python），数据放在 exe 旁边的 `data/`。
+- **`extension`**：拿到手就是 Chrome / Edge 插件文件夹（两个浏览器通用），直接"加载已解压"选它即可。
+- **`editor-godot-4.7.2`**：就是 `addons/nonzeroscript/` + 标准 GDScript 脚本，复制 `addons/` 进项目即用。
+- 下载入口改为 [Actions → 构建 Build](../../actions/workflows/build.yml) 的 Artifacts（每次推送自动构建，可手动触发）。
+
 ## 2026-11-15 — 指令归位，只编译 Windows 64 位
 
 ### 变化

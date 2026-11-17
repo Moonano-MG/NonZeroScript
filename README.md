@@ -64,22 +64,19 @@ No cloud service is involved. Everything runs on your machine, and the only netw
 
 ## Download and install
 
-Three separate packages in [`dist/`](dist), plus `SHA256SUMS.txt` to verify them.
+The downloads are built by GitHub on every push — open [Actions → 构建 Build](../../actions/workflows/build.yml), the latest run, and the **Artifacts** list at the bottom of the page (GitHub already packs each one as a zip). Press *Run workflow* to build on demand. Three outputs, each already in its final form:
 
-| Package | What it is | Where it goes |
+| Artifact | What it is | What to do |
 |---|---|---|
-| **`controller.zip`** | visual console + local relay | anywhere, double-click the launcher |
-| **`extension.zip`** | Chrome / Edge extension (the basic instructions the AI is given are inside) | load unpacked, keep the folder |
-| **`editor-godot-4.7.2.zip`** | Godot 4.7.2 plugin (its commands and editor instructions are inside) | `addons/nonzeroscript` in your project |
-
-Each one contains its own `INSTALL.txt`. Download, extract, then follow the three steps below.
+| **`controller.exe`** | the whole controller (visual console + local relay) as one Windows program | double-click it — **no Python needed** |
+| **`extension`** | the Chrome **and** Edge extension folder (the basic instructions the AI is given are inside) | *Load unpacked* → pick the `extension` folder |
+| **`editor-godot-4.7.2`** | the Godot plugin as `addons/nonzeroscript/` (standard GDScript; its commands and editor instructions are inside) | copy `addons/` into your project root, enable the plugin |
 
 > **Platforms:** currently only **Windows 10/11 (64-bit)** is built. Other platforms are not supported yet.
 
 ### 1. The controller (visual console + relay)
 
-- Install **Python 3.9 or newer** ([python.org/downloads](https://www.python.org/downloads/)). Nothing else is needed — no `pip install`.
-- Open the `controller` folder and double-click **`start.bat`** (Windows 10/11, 64-bit).
+- Double-click **`controller.exe`**. That is the whole program — nothing else to install.
 - A console window opens and your browser shows **http://127.0.0.1:8790/** — the visual console.
 
 > Keep the controller window open while you work. Closing it stops the relay. Changing the port requires a restart.
@@ -90,12 +87,12 @@ The same extension works in both browsers.
 
 1. Open `chrome://extensions` (Chrome) or `edge://extensions` (Edge).
 2. Turn on **Developer mode**.
-3. Click **Load unpacked** and select the extracted `extension` folder.
+3. Click **Load unpacked** and select the `extension` folder from the artifact.
 4. Optional: pin NonZeroScript to the toolbar.
 
 ### 3. The Godot 4.7.2 editor plugin
 
-1. In the extracted archive (or the `editor/godot-4.7.2` folder in this repository) you will find the plugin. Copy it into your Godot project so the path becomes:
+1. The `editor-godot-4.7.2` artifact contains `addons/nonzeroscript/`. Copy the `addons` folder into your Godot project so the path becomes:
 
    ```
    your_project/
@@ -124,7 +121,7 @@ This walks through a complete first session.
 
 1. **Create a project.** Open Godot 4.7.2, create a new project (for example `MyFirstGame`), and open it.
 2. **Install the plugin.** Copy `addons/nonzeroscript` into the project (step 3 above), then enable it in *Project Settings → Plugins*.
-3. **Start the controller.** Double-click `controller/start.bat`. The visual console opens at `http://127.0.0.1:8790/`.
+3. **Start the controller.** Double-click `controller.exe`. The visual console opens at `http://127.0.0.1:8790/`.
 4. **Connect a browser.** Load the extension, open **https://chat.deepseek.com** (recommended) or any supported AI, start a **new chat**, and click **启动** in the NonZeroScript bar above the input box. The bar turns green and says *已就绪 · 等待操控台派发任务*.
 5. **Queue a task.** In the console, type something like:
 
@@ -302,9 +299,8 @@ Long results are capped (12 000 characters by default) so one command cannot eat
 
 - **Godot 4.7.2** (the editor plugin targets 4.7.2; it may work on nearby 4.x releases, but that is untested)
 - C# projects also need the **.NET build of Godot 4.7.2** and a .NET SDK; GDScript needs nothing extra
-- **Chrome or Edge** (Chromium 111+; the Edge package is the same extension)
-- **Python 3.9+** for the controller.
-- **Windows 10/11 (64-bit)** — currently the only built platform
+- **Chrome or Edge** (Chromium 111+; the same extension folder works in both)
+- **Windows 10/11 (64-bit)** — currently the only built platform. The controller is a single `controller.exe`; nothing else to install.
 - **Linux is not supported**: there is no Linux launcher or package.
 
 ## Troubleshooting
