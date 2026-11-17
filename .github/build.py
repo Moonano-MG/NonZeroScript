@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the NonZeroScript download packages.
 
-Run by .github/workflows/check.yml, and runnable by hand:
+Run by .github/workflows/build.yml, and runnable by hand:
 
     python .github/build.py            # build dist/*.zip + SHA256SUMS.txt
     python .github/build.py --check    # verify versions and prompt docs only

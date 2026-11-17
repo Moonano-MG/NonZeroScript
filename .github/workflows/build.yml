@@ -1,13 +1,13 @@
-name: Build
+name: 构建 Build
 
-# 构建脚本：打三个下载包，每个包一个独立 artifact，在 Actions 页面单独下载。
-# 仓库不发 GitHub Release；dist/ 里的包随代码一起提交，这里只是再打一份。
+# 每次运行都会输出下载包：校验 -> 打三个包 -> 上传为 artifact（run 页面底部直接下载）。
+# dist/ 里的包随代码一起提交；仓库不发 Release，也不打 tag。
 #
-# 手动运行：Actions -> Build -> Run workflow
+# 手动运行：Actions -> 构建 Build -> Run workflow
 
 on:
   push:
-    branches: ["v0.1.0-dev"]
+    branches: ["**"]
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    name: Build packages
+    name: Check + build packages
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,8 +26,26 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check versions and prompt docs
+      - name: Check versions and adapter catalogues
         run: python .github/build.py --check
+
+      - name: Python sources compile
+        run: python -m compileall -q controller .github
+
+      - name: JavaScript syntax
+        run: |
+          fail=0
+          for f in extension/*.js extension/core/*.js extension/providers/*.js controller/ui/app.js; do
+            node --check "$f" || fail=1
+          done
+          exit $fail
+
+      - name: GDScript parses
+        run: |
+          python -m pip install --quiet gdtoolkit
+          gdparse editor/godot-4.7.2/plugin.gd \
+                  editor/godot-4.7.2/core/bridge.gd \
+                  editor/godot-4.7.2/core/commands.gd
 
       - name: Build controller.zip / extension.zip / editor-godot-4.7.2.zip
         run: python .github/build.py
@@ -36,6 +54,15 @@ jobs:
         run: |
           ls -lh dist
           cat dist/SHA256SUMS.txt
+          {
+            echo "## 下载包 / packages"
+            echo ""
+            echo "本页底部 **Artifacts** 里就是下面这几个文件，点名字即可单独下载："
+            echo ""
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload controller.zip
         uses: actions/upload-artifact@v7
