@@ -79,10 +79,13 @@ Response:
 
 ## Command catalogue
 
-The commands themselves live in `controller/tools.json` (29 for the Godot
-adapter). The prompt is generated from that file, so an adapter can ship a
-different catalogue by pointing the controller at another JSON file — the
-extension never hard-codes tool names.
+Each adapter carries its own instructions and command catalogue in
+`editor/<name>/adapter.json` (29 commands for the Godot adapter). When the
+plugin connects, it registers that file with the controller (the first polls
+send it until the controller confirms), so the controller always knows which
+editor is open and can serve that editor's instructions and commands to the
+extension. The prompt the AI receives is assembled from the basic instructions
+in the extension plus this file; the extension never hard-codes tool names.
 
 Groups used by the console and the prompt: `read`, `edit`, `scene`, `run`,
 `tool`.
@@ -97,9 +100,13 @@ editor/
 ```
 
 1. Implement the two endpoints and the status fields above.
-2. Describe the commands in `controller/tools.json` (or a per-adapter copy), so
-   the prompt the AI receives lists the new tools.
-3. Add the engine to the table below.
+2. Write `adapter.json` in your folder: `id`, `name`, `engine`, `version`,
+   `instructions` (the editor-specific prompt text: languages, code blocks,
+   paths) and `tools` (the command catalogue). Your plugin sends this file to
+   the controller on connect.
+3. Keep `core/commands.gd`-style dispatch in step with the catalogue
+   (`python .github/build.py --check` verifies it).
+4. Add the engine to the table below.
 
 ## Supported adapters
 

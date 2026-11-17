@@ -1,6 +1,6 @@
 # NonZeroScript - Free AI Agent for Your Game Editor
 
-![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20%7C%20macOS%20(64%20%26%2032--bit)-lightgrey)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20(64--bit)-lightgrey)
 ![Editor](https://img.shields.io/badge/editors-multi--editor%20%C2%B7%20Godot%204.7.2-478cbf)
 ![Languages](https://img.shields.io/badge/scripts-GDScript%20%2B%20C%23-2f9e44)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
@@ -64,25 +64,22 @@ No cloud service is involved. Everything runs on your machine, and the only netw
 
 ## Download and install
 
-Four separate packages in [`dist/`](dist). You need the first three; `prompts.zip` is the reference copy of what the AI is told.
+Three separate packages in [`dist/`](dist), plus `SHA256SUMS.txt` to verify them.
 
 | Package | What it is | Where it goes |
 |---|---|---|
 | **`controller.zip`** | visual console + local relay | anywhere, double-click the launcher |
-| **`extension.zip`** | Chrome / Edge extension | load unpacked, keep the folder |
-| **`editor-godot-4.7.2.zip`** | Godot 4.7.2 plugin | `addons/nonzeroscript` in your project |
-| `prompts.zip` | the instructions the AI is given | read-only reference |
+| **`extension.zip`** | Chrome / Edge extension (the basic instructions the AI is given are inside) | load unpacked, keep the folder |
+| **`editor-godot-4.7.2.zip`** | Godot 4.7.2 plugin (its commands and editor instructions are inside) | `addons/nonzeroscript` in your project |
 
 Each one contains its own `INSTALL.txt`. Download, extract, then follow the three steps below.
 
-> **Platforms:** Windows 10/11 and macOS, 64-bit and 32-bit. **Linux is not supported** — no Linux launcher, no Linux package, no Linux instructions.
+> **Platforms:** currently only **Windows 10/11 (64-bit)** is built. Other platforms are not supported yet.
 
 ### 1. The controller (visual console + relay)
 
 - Install **Python 3.9 or newer** ([python.org/downloads](https://www.python.org/downloads/)). Nothing else is needed — no `pip install`.
-- Open the `controller` folder and double-click:
-  - **Windows 10/11 (64-bit or 32-bit):** `start.bat`
-  - **macOS (64-bit or 32-bit):** `start.command` (first launch: right-click → Open, or allow it in *System Settings → Privacy & Security*)
+- Open the `controller` folder and double-click **`start.bat`** (Windows 10/11, 64-bit).
 - A console window opens and your browser shows **http://127.0.0.1:8790/** — the visual console.
 
 > Keep the controller window open while you work. Closing it stops the relay. Changing the port requires a restart.
@@ -127,7 +124,7 @@ This walks through a complete first session.
 
 1. **Create a project.** Open Godot 4.7.2, create a new project (for example `MyFirstGame`), and open it.
 2. **Install the plugin.** Copy `addons/nonzeroscript` into the project (step 3 above), then enable it in *Project Settings → Plugins*.
-3. **Start the controller.** Double-click `controller/start.bat` (Windows) or `start.command` (macOS). The visual console opens at `http://127.0.0.1:8790/`.
+3. **Start the controller.** Double-click `controller/start.bat`. The visual console opens at `http://127.0.0.1:8790/`.
 4. **Connect a browser.** Load the extension, open **https://chat.deepseek.com** (recommended) or any supported AI, start a **new chat**, and click **启动** in the NonZeroScript bar above the input box. The bar turns green and says *已就绪 · 等待操控台派发任务*.
 5. **Queue a task.** In the console, type something like:
 
@@ -306,8 +303,8 @@ Long results are capped (12 000 characters by default) so one command cannot eat
 - **Godot 4.7.2** (the editor plugin targets 4.7.2; it may work on nearby 4.x releases, but that is untested)
 - C# projects also need the **.NET build of Godot 4.7.2** and a .NET SDK; GDScript needs nothing extra
 - **Chrome or Edge** (Chromium 111+; the Edge package is the same extension)
-- **Python 3.9+** for the controller. On a 32-bit system install the 32-bit Python build.
-- **Windows 10/11** (64-bit or 32-bit) or **macOS** (64-bit or 32-bit)
+- **Python 3.9+** for the controller.
+- **Windows 10/11 (64-bit)** — currently the only built platform
 - **Linux is not supported**: there is no Linux launcher or package.
 
 ## Troubleshooting

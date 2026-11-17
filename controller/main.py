@@ -92,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"    or start with: python main.py --port {port + 1}")
         return 2
 
-    hub = Hub(settings, data_dir, BASE)
+    hub = Hub(settings, data_dir)
     server = create_server(hub, BASE / "ui", host, port)
     url = f"http://{'127.0.0.1' if host in ('127.0.0.1', '0.0.0.0') else host}:{port}/"
 

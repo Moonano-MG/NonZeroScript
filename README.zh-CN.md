@@ -1,6 +1,6 @@
 # NonZeroScript —— 免费的游戏编辑器 AI 智能体
 
-![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20%7C%20macOS%20(64%20%26%2032--bit)-lightgrey)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20(64--bit)-lightgrey)
 ![Editor](https://img.shields.io/badge/editors-多编辑器%20%C2%B7%20Godot%204.7.2-478cbf)
 ![Languages](https://img.shields.io/badge/scripts-GDScript%20%2B%20C%23-2f9e44)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
@@ -16,7 +16,7 @@
 - **支持多个编辑器：** 浏览器插件和中转只认一套很小的编辑器无关协议，每个编辑器对应 `editor/` 下的一个插件文件夹。**现在已经内置 Godot 4.7.2（GDScript + C#）**；要支持 Unity、Unreal 或别的引擎，只需按 [`editor/PROTOCOL.md`](editor/PROTOCOL.md) 写一个适配器，不用改 agent。
 - **不只是“三个浏览器”：** 打开多少个浏览器/标签页都行，每个会话都有“轮换”勾选；**勾一个就是单浏览器模式，勾两个以上才真正轮换**。
 - **三档性能模式：** 极致性能（内存目标 **30 MB 以内**，实测 15–25 MB）、平均、最快速度，操控台里一键切换，立即生效。
-- **平台：** 仅 Windows 10/11 与 macOS，**64 位和 32 位都支持，不提供 Linux 版本**。
+- **平台：** 目前只提供 **Windows 10/11（64 位）** 版本。
 - **免费开源：** GPL-3.0，无账号、无订阅、无 API Key，数据全部留在本机。
 
 > **官方衍生版说明**：NonZeroScript 并不是第三方魔改，而是 ZeroScript 官方针对游戏编辑器（当前为 Godot 4.7.2）的衍生版本，与上游项目同步维护。本版本**不包含** Roblox Studio 集成、Roblox MCP 中转和 Roblox 专用说明；其余部分（浏览器插件的智能体循环、命令协议、永久免费承诺）都来自 ZeroScript，并继续使用 GPL-3.0 许可。
@@ -71,25 +71,22 @@
 
 ## 下载与安装（共三部分）
 
-> [`dist/`](dist) 里有四个独立的压缩包。前三个必须装，`prompts.zip` 是给 AI 的指令，供查看参考。
+> [`dist/`](dist) 里有三个独立的压缩包，外加 `SHA256SUMS.txt` 校验文件。
 >
 > | 压缩包 | 是什么 | 放哪里 |
 > |---|---|---|
 > | **`controller.zip`** | 可视化操控台 + 本地中转 | 放哪都行，双击启动脚本 |
-> | **`extension.zip`** | Chrome / Edge 插件 | 加载已解压，文件夹保留 |
-> | **`editor-godot-4.7.2.zip`** | Godot 4.7.2 插件 | 项目的 `addons/nonzeroscript` |
-> | `prompts.zip` | 给 AI 的指令 | 只读参考 |
+> | **`extension.zip`** | Chrome / Edge 插件（给 AI 的基本指令就在里面） | 加载已解压，文件夹保留 |
+> | **`editor-godot-4.7.2.zip`** | Godot 4.7.2 插件（它的命令和编辑器指令就在里面） | 项目的 `addons/nonzeroscript` |
 >
 > 每个包里都有自己的 `INSTALL.txt`。解压后按下面三步装好即可。
 >
-> **平台说明：** 仅支持 **Windows 10/11** 和 **macOS**，**64 位与 32 位都可以**；**不提供 Linux 版本**，也没有 Linux 启动脚本或安装包。
+> **平台说明：** 目前只提供 **Windows 10/11（64 位）** 版本，其他平台暂不支持。
 
 ### 1. 中转 + 可视化操控台
 
 - 安装 **Python 3.9 或更新版本**（[python.org/downloads](https://www.python.org/downloads/)），不需要 `pip install`，只用标准库。
-- 打开 `controller` 文件夹，双击：
-  - **Windows 10/11（64 位 / 32 位）：** `start.bat`
-  - **macOS（64 位 / 32 位）：** `start.command`（首次运行请右键 → 打开，或在“系统设置 → 隐私与安全性”里允许）
+- 打开 `controller` 文件夹，双击 **`start.bat`**（Windows 10/11，64 位）。
 - 会打开一个控制台窗口，并自动在浏览器打开 **http://127.0.0.1:8790/**（可视化操控台）。
 
 > 使用期间请保持这个窗口开启。关闭窗口就会停止中转。修改端口后需要重启。
@@ -128,7 +125,7 @@
 
 1. **创建项目。** 打开 Godot 4.7.2，新建项目（例如 `MyFirstGame`）并打开。
 2. **安装插件。** 按上面的第 3 步复制 `addons/nonzeroscript`，并在“项目设置 → 插件”里启用。
-3. **启动中转。** 双击 `controller/start.bat`（Windows）或 `start.command`（macOS）。操控台自动打开。
+3. **启动中转。** 双击 `controller/start.bat`。操控台自动打开。
 4. **连接浏览器。** 加载插件后打开 **https://chat.deepseek.com**（推荐）或任意支持的 AI，**新建对话**，点击输入框上方的 **启动**。状态栏变绿并显示“已就绪 · 等待操控台派发任务”。
 5. **在操控台添加任务。** 例如：
 
@@ -308,8 +305,8 @@ public partial class Player : CharacterBody2D
 - **Godot 4.7.2**（插件按 4.7.2 编写；相邻 4.x 版本或许可用，但未测试）
 - C# 项目另需 **Godot 4.7.2 的 .NET 版**和 .NET SDK；纯 GDScript 项目不需要
 - **Chrome 或 Edge**（Chromium 111+，Edge 使用同一个插件包）
-- **Python 3.9+**（中转，仅标准库）；32 位系统请安装 32 位 Python
-- **Windows 10/11**（64 位 / 32 位）或 **macOS**（64 位 / 32 位）
+- **Python 3.9+**（中转，仅标准库）
+- **Windows 10/11（64 位）** —— 目前唯一提供的平台
 - **不支持 Linux**，也没有 Linux 安装包或启动脚本
 
 ## 常见问题

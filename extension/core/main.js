@@ -44,6 +44,10 @@
     editorWrite: true,
     editorCSharp: null,
     editorDotnet: null,
+    editorName: "",
+    editorEngine: "",
+    editorAdapter: "",
+    editorInstructions: "",
     settings: { min_delay: 2, max_delay: 6, max_turns: 60 },
     tools: [],
     sessionState: "registered", // registered | starting | ready | busy | stopped
@@ -314,6 +318,12 @@
       state.editorWrite = r.editor && r.editor.write_enabled === false ? false : true;
       state.editorCSharp = r.editor && r.editor.csharp != null ? !!r.editor.csharp : null;
       state.editorDotnet = r.editor && r.editor.dotnet != null ? !!r.editor.dotnet : null;
+      if (r.editor) {
+        if (r.editor.name) state.editorName = String(r.editor.name);
+        if (r.editor.engine) state.editorEngine = String(r.editor.engine);
+        if (r.editor.adapter) state.editorAdapter = String(r.editor.adapter);
+      }
+      if (typeof r.instructions === "string" && r.instructions) state.editorInstructions = r.instructions;
       if (r.settings) state.settings = r.settings;
       if (Array.isArray(r.tools)) state.tools = r.tools;
       state.lastError = "";
@@ -435,18 +445,27 @@
         P.enforceComposer();
       }
 
-      if (!state.tools.length) {
+      if (!state.tools.length || !state.editorInstructions) {
         const t = await ZSNet.api("/api/tools", {}, 8000);
         if (t && t.ok && Array.isArray(t.tools)) state.tools = t.tools;
+        if (t && typeof t.instructions === "string" && t.instructions) state.editorInstructions = t.instructions;
+        if (t && t.editor) {
+          if (t.editor.name) state.editorName = String(t.editor.name);
+          if (t.editor.engine) state.editorEngine = String(t.editor.engine);
+          if (t.editor.id) state.editorAdapter = String(t.editor.id);
+        }
       }
 
       const prompt = ZS.systemPrompt({
         siteName: P.displayName,
         tools: state.tools,
+        editorName: state.editorName,
+        editorInstructions: state.editorInstructions,
         editor: {
           connected: state.editorConnected,
           project: state.editorProject,
-          engine: "Godot 4.7.2",
+          adapter: state.editorAdapter,
+          engine: state.editorEngine,
           write_enabled: state.editorWrite,
           csharp: !!state.editorCSharp,
           dotnet: !!state.editorDotnet,

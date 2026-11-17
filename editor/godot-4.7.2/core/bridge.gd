@@ -40,6 +40,11 @@ var _editor_id := ""
 var _last_error := ""
 var _last_status_sig := ""
 var _outbox: Array = []
+# This adapter's instructions (adapter.json): the command catalogue and the
+# editor-specific prompt text. Registered with the controller on connect, so
+# the controller knows which editor is open and what it can do.
+var _adapter: Dictionary = {}
+var _adapter_sent := false
 
 
 func _ready() -> void:
@@ -48,6 +53,7 @@ func _ready() -> void:
 	_http.timeout = 8.0
 	add_child(_http)
 	_load_config()
+	_adapter = _load_adapter()
 	_editor_id = "godot-" + str(OS.get_user_data_dir().md5_text().substr(0, 8))
 	set_process(true)
 	_log("Bridge ready → %s" % controller_url)
@@ -104,6 +110,10 @@ func _poll() -> void:
 	if _failures > 0 or not _connected:
 		_log("Connected to controller %s" % controller_url)
 	_failures = 0
+	if data.get("adapter_ok") == true:
+		_adapter_sent = true
+	if data.get("need_adapter") == true:
+		_adapter_sent = false
 	_apply_poll_hint(data)
 	_poll_interval = _base_interval
 	_connected = true
@@ -205,9 +215,23 @@ func _execute(item: Variant) -> void:
 # ══════════════════════════════════════════════════════════════════════════
 #  STATUS / CONFIG
 # ══════════════════════════════════════════════════════════════════════════
+func _load_adapter() -> Dictionary:
+	var path := "res://addons/nonzeroscript/adapter.json"
+	if not FileAccess.file_exists(path):
+		_log("adapter.json not found - the controller will not get this editor's instructions")
+		return {}
+	var text := FileAccess.get_file_as_string(path)
+	var data = JSON.parse_string(text)
+	if typeof(data) != TYPE_DICTIONARY:
+		_log("adapter.json is not valid JSON")
+		return {}
+	return data
+
+
 func _status_body() -> Dictionary:
-	return {
+	var body := {
 		"editorId": _editor_id,
+		"adapterId": str(_adapter.get("id", "")),
 		"version": PLUGIN_VERSION,
 		"project": str(ProjectSettings.get_setting("application/config/name", "")),
 		"projectPath": ProjectSettings.globalize_path("res://"),
@@ -218,6 +242,10 @@ func _status_body() -> Dictionary:
 		"csharp": _editor_supports_csharp(),
 		"dotnet": _editor_is_dotnet(),
 	}
+	# Send the instructions until the controller confirms it has them.
+	if not _adapter_sent and not _adapter.is_empty():
+		body["adapter"] = _adapter
+	return body
 
 
 # Feature-detected so an out-of-date commands.gd never breaks the poll loop.

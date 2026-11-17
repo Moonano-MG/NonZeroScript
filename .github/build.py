@@ -29,7 +29,7 @@ DIST = ROOT / "dist"
 # "version", so the real string (e.g. v0.1.0-dev) lives in "version_name".
 VERSION_SOURCES = [
     ("controller/version.py", r'__version__\s*=\s*"([^"]+)"'),
-    ("controller/tools.json", r'"version"\s*:\s*"([^"]+)"'),
+    ("editor/godot-4.7.2/adapter.json", r'"version"\s*:\s*"([^"]+)"'),
     ("editor/godot-4.7.2/plugin.cfg", r'^version\s*=\s*"([^"]+)"'),
     ("editor/godot-4.7.2/core/commands.gd", r'const VERSION\s*:=\s*"([^"]+)"'),
     ("editor/godot-4.7.2/core/bridge.gd", r'const PLUGIN_VERSION\s*:=\s*"([^"]+)"'),
@@ -82,50 +82,52 @@ def check_versions() -> list[str]:
     return problems
 
 
-def catalogue_rows(path: Path) -> dict[str, list[str]]:
-    """Read the summary tables of prompts/tool-catalogue.md.
-
-    Summary rows look like ``| `read_file` | `path`, `start_line?` |`` (two
-    columns). The per-parameter tables further down have four columns and are
-    skipped.
-    """
-    rows: dict[str, list[str]] = {}
-    row_re = re.compile(r"^\|\s*`([a-z_]+)`\s*\|\s*([^|]*)\|\s*$")
-    for line in path.read_text(encoding="utf-8").splitlines():
-        match = row_re.match(line.strip())
-        if not match:
-            continue
-        params = match.group(2).strip()
-        rows[match.group(1)] = [] if params in {"—", "-", ""} else re.findall(r"`([a-z_]+)\??`", params)
-    return rows
-
-
-def check_prompts() -> list[str]:
-    """prompts/tool-catalogue.md must describe exactly what tools.json exposes."""
-    tools_path = ROOT / "controller" / "tools.json"
-    cat_path = ROOT / "prompts" / "tool-catalogue.md"
-    try:
-        tools = json.loads(tools_path.read_text(encoding="utf-8")).get("tools") or []
-    except (OSError, ValueError) as exc:
-        return [f"controller/tools.json: {exc}"]
-    if not cat_path.exists():
-        return ["prompts/tool-catalogue.md is missing"]
-
-    expected = {t.get("name"): list(t.get("params") or {}) for t in tools}
-    actual = catalogue_rows(cat_path)
-    text = cat_path.read_text(encoding="utf-8")
+def check_adapter() -> list[str]:
+    """Every editor adapter ships adapter.json: its instructions and command
+    catalogue must be complete and must match core/commands.gd exactly."""
     problems: list[str] = []
-
-    for name in expected:
-        if name not in actual:
-            problems.append(f"tool-catalogue.md: `{name}` is missing from the summary tables")
-        elif actual[name] != expected[name]:
-            problems.append(f"tool-catalogue.md: `{name}` params {actual[name]} != {expected[name]}")
-        if f"### `{name}`" not in text:
-            problems.append(f"tool-catalogue.md: no description section for `{name}`")
-    for name in actual:
-        if name not in expected:
-            problems.append(f"tool-catalogue.md: `{name}` is not in controller/tools.json")
+    for folder in editor_folders():
+        meta_path = folder / "adapter.json"
+        cmd_path = folder / "core" / "commands.gd"
+        rel = str(meta_path.relative_to(ROOT))
+        if not meta_path.exists():
+            problems.append(f"{rel}: missing (every adapter carries its own instructions and catalogue)")
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            problems.append(f"{rel}: {exc}")
+            continue
+        for field in ("id", "name", "instructions"):
+            if not str(meta.get(field) or "").strip():
+                problems.append(f"{rel}: empty '{field}'")
+        tools = meta.get("tools")
+        if not isinstance(tools, list) or not tools:
+            problems.append(f"{rel}: no tools")
+            continue
+        names: list[str] = []
+        for tool in tools:
+            name = str((tool or {}).get("name") or "")
+            if not name:
+                problems.append(f"{rel}: a tool has no name")
+                continue
+            names.append(name)
+            if not str((tool or {}).get("description") or "").strip():
+                problems.append(f"{rel}: `{name}` has no description")
+            if not isinstance((tool or {}).get("params"), dict):
+                problems.append(f"{rel}: `{name}` has no params object")
+        if not cmd_path.exists():
+            problems.append(f"{cmd_path.relative_to(ROOT)}: missing")
+            continue
+        text = cmd_path.read_text(encoding="utf-8")
+        region = text.split("func execute", 1)[-1].split("func _ok", 1)[0]
+        dispatch = set(re.findall(r'^\t\t"([a-z_]+)":\s*$', region, re.M))
+        only_gd = dispatch - set(names)
+        only_json = set(names) - dispatch
+        if only_gd:
+            problems.append(f"{rel}: commands.gd dispatches {sorted(only_gd)} but the catalogue does not list them")
+        if only_json:
+            problems.append(f"{rel}: the catalogue lists {sorted(only_json)} but commands.gd does not dispatch them")
     return problems
 
 
@@ -164,10 +166,8 @@ def install_text(kind: str, version: str, extra: str = "") -> str:
         body = (
             "Controller (visual console + local relay)\n\n"
             "1. Install Python 3.9 or newer: https://www.python.org/downloads/\n"
-            "2. Double-click one of:\n"
-            "     Windows 10/11   controller/start.bat\n"
-            "     macOS           controller/start.command  (right-click > Open the first time)\n"
-            "   Windows and macOS are supported in 64-bit and 32-bit; Linux is not supported.\n"
+            "2. Double-click controller/start.bat\n"
+            "   Currently only Windows 10/11 (64-bit) is built.\n"
             "3. The console opens at http://127.0.0.1:8790/\n\n"
             "Keep the window open while you work. No pip install is needed.\n"
         )
@@ -178,15 +178,6 @@ def install_text(kind: str, version: str, extra: str = "") -> str:
             "Edge:    edge://extensions    -> Developer mode -> Load unpacked -> extension/\n\n"
             "Then open a supported AI chat (for example https://chat.deepseek.com),\n"
             "start a new conversation, and press Start in the NonZeroScript bar.\n"
-        )
-    elif kind == "combined":
-        body = (
-            "Everything you need is in this archive.\n\n"
-            "  controller/   double-click the launcher for your OS (Python 3.9+)\n"
-            "  extension/    load unpacked in Chrome or Edge\n"
-            "  editor/       copy editor/godot-4.7.2 into your project as\n"
-            "                addons/nonzeroscript, then enable the plugin\n\n"
-            "Read README.md (English) or README.zh-CN.md (中文) for the full tutorial.\n"
         )
     else:
         body = ""
@@ -245,29 +236,6 @@ def build_editor(folder: Path, path: Path) -> int:
     return make_zip(path, build)
 
 
-def build_prompts(path: Path) -> int:
-    def build(zf: zipfile.ZipFile) -> int:
-        add_text(
-            zf,
-            "INSTALL.txt",
-            install_text(
-                "prompts",
-                read_version(),
-                "\nThese are the instructions NonZeroScript gives the AI.\n\n"
-                "  system-prompt.md    the full prompt, with {{PLACEHOLDERS}}\n"
-                "  agent-rules.md      the same rules as a checklist\n"
-                "  tool-catalogue.md   every command, parameter and description\n"
-                "  repair-messages.md  the hints sent back when a reply cannot be parsed\n\n"
-                "Nothing here is read at runtime: the live copies are in\n"
-                "extension/core/config.js and controller/tools.json. Read these to see\n"
-                "exactly what the AI is told, or adapt them to your own project.\n",
-            ),
-        )
-        return add_tree(zf, ROOT / "prompts", "prompts")
-
-    return make_zip(path, build)
-
-
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fh:
@@ -301,10 +269,6 @@ def build(out: Path) -> int:
         n = build_editor(folder, path)
         print(f"  [ok] {path.name}  {n} files -> addons/nonzeroscript/")
 
-    path = out / "prompts.zip"
-    n = build_prompts(path)
-    print(f"  [ok] prompts.zip     {n} files  {path.stat().st_size // 1024} KB")
-
     sums = out / "SHA256SUMS.txt"
     lines = []
     for path in sorted(out.glob("*.zip")):
@@ -323,11 +287,11 @@ def build(out: Path) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Build NonZeroScript download packages")
-    ap.add_argument("--check", action="store_true", help="verify versions and prompt docs, build nothing")
+    ap.add_argument("--check", action="store_true", help="verify versions and adapter catalogues, build nothing")
     ap.add_argument("--out", default=None, help="output folder (default: dist/)")
     args = ap.parse_args(argv)
 
-    problems = check_versions() + check_prompts()
+    problems = check_versions() + check_adapter()
     if args.check or problems:
         for problem in problems:
             print(f"FAIL {problem}")
@@ -335,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n{len(problems)} problem(s).")
             return 1
         if args.check:
-            print(f"OK NonZeroScript {read_version()}: versions and prompt docs are consistent")
+            print(f"OK NonZeroScript {read_version()}: versions and adapter catalogues are consistent")
         return 0
 
     return build(Path(args.out) if args.out else DIST)

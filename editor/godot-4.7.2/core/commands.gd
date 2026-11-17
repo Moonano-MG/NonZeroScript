@@ -37,7 +37,7 @@ func execute(name: String, params: Dictionary) -> Dictionary:
 		return _err("Godot is not available")
 	match name:
 		"list_tools":
-			return _ok({"note": "The tool catalogue is served by the controller."})
+			return _ok({"note": "The tool catalogue is this adapter's adapter.json, served by the controller."})
 		"get_editor_state":
 			return _editor_state()
 		"list_files":
