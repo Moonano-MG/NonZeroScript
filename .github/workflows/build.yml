@@ -1,6 +1,6 @@
 name: Build
 
-# 构建脚本：打四个下载包，每个包一个独立 artifact，在 Actions 页面单独下载。
+# 构建脚本：打三个下载包，每个包一个独立 artifact，在 Actions 页面单独下载。
 # 仓库不发 GitHub Release；dist/ 里的包随代码一起提交，这里只是再打一份。
 #
 # 手动运行：Actions -> Build -> Run workflow
@@ -29,7 +29,7 @@ jobs:
       - name: Check versions and prompt docs
         run: python .github/build.py --check
 
-      - name: Build controller.zip / extension.zip / editor-godot-4.7.2.zip / prompts.zip
+      - name: Build controller.zip / extension.zip / editor-godot-4.7.2.zip
         run: python .github/build.py
 
       - name: Show what was built
@@ -58,14 +58,6 @@ jobs:
         with:
           name: editor-godot-4.7.2.zip
           path: dist/editor-godot-4.7.2.zip
-          compression-level: 0
-          if-no-files-found: error
-
-      - name: Upload prompts.zip
-        uses: actions/upload-artifact@v7
-        with:
-          name: prompts.zip
-          path: dist/prompts.zip
           compression-level: 0
           if-no-files-found: error
 

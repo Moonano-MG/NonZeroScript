@@ -121,6 +121,7 @@ class Session:
 @dataclass
 class Editor:
     id: str = ""
+    adapter: str = ""
     project: str = ""
     project_path: str = ""
     engine: str = ""
@@ -137,7 +138,7 @@ class Editor:
 
 
 class Hub:
-    def __init__(self, settings: Settings, data_dir: Path, controller_dir: Path):
+    def __init__(self, settings: Settings, data_dir: Path):
         self.settings = settings
         self.data_dir = Path(data_dir)
         self.memory = Memory(data_dir)
@@ -151,9 +152,13 @@ class Hub:
         self.logs: deque[dict[str, Any]] = deque(maxlen=int(settings.get("log_limit")))
         self.log_seq = 0
         self._stop = False
-        self._tools: list[dict[str, Any]] = []
-        self._tools_by_name: dict[str, dict[str, Any]] = {}
-        self._load_tools(controller_dir / "tools.json")
+        # Editor instructions: each editor adapter (editor/<name>/adapter.json)
+        # registers its command catalogue and prompt text with the controller
+        # when its plugin connects. The controller serves the ACTIVE editor's
+        # set to the extension - see adapter_info() / tools().
+        self._adapters: dict[str, dict[str, Any]] = {}
+        self._active_adapter: str = ""
+        self._load_cached_adapters()
         self.host = str(settings.get("host"))
         self.port = int(settings.get("port"))
         threading.Thread(target=self._reaper, name="nzs-reaper", daemon=True).start()
@@ -191,24 +196,75 @@ class Hub:
                 pass
 
     # ══════════════════════════════════════════════════════════════════════
-    #  TOOLS
+    #  EDITOR INSTRUCTIONS (per-adapter command catalogue + prompt text)
     # ══════════════════════════════════════════════════════════════════════
-    def _load_tools(self, path: Path) -> None:
-        try:
-            data = json.loads(Path(path).read_text(encoding="utf-8"))
-            tools = data.get("tools", [])
-            if isinstance(tools, list):
-                self._tools = [t for t in tools if isinstance(t, dict) and t.get("name")]
-                self._tools_by_name = {t["name"]: t for t in self._tools}
-        except Exception as e:
-            self.log("error", f"could not load tools.json: {e}")
-        if not self._tools:
-            self._tools = [{"name": "list_tools", "description": "List commands.", "params": {}}]
-            self._tools_by_name = {"list_tools": self._tools[0]}
+    def _load_cached_adapters(self) -> None:
+        """Remember the last registered instruction set of every adapter."""
+        cache = self.data_dir / "adapters"
+        if not cache.is_dir():
+            return
+        for path in sorted(cache.glob("*.json")):
+            try:
+                self.register_adapter(json.loads(path.read_text(encoding="utf-8")), cache=False)
+            except Exception as e:
+                self.log("error", f"could not load cached adapter {path.name}: {e}")
+
+    def register_adapter(self, adapter: dict[str, Any], cache: bool = True) -> bool:
+        """Store an adapter's instructions (sent by its plugin on connect)."""
+        if not isinstance(adapter, dict):
+            return False
+        aid = str(adapter.get("id") or "").strip()
+        tools = adapter.get("tools")
+        if not aid or not isinstance(tools, list):
+            return False
+        clean = [t for t in tools if isinstance(t, dict) and t.get("name")]
+        if not clean:
+            return False
+        entry = {
+            "id": aid,
+            "name": str(adapter.get("name") or aid),
+            "engine": str(adapter.get("engine") or ""),
+            "version": str(adapter.get("version") or ""),
+            "instructions": str(adapter.get("instructions") or ""),
+            "tools": clean,
+        }
+        with self.lock:
+            self._adapters[aid] = entry
+            self._active_adapter = aid
+        if cache:
+            try:
+                folder = self.data_dir / "adapters"
+                folder.mkdir(parents=True, exist_ok=True)
+                (folder / f"{aid}.json").write_text(
+                    json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            except Exception as e:
+                self.log("warn", f"could not cache adapter {aid}: {e}")
+        return True
+
+    def _active_adapter_entry(self) -> dict[str, Any]:
+        """The instruction set of the editor that is (or was last) connected."""
+        with self.lock:
+            aid = self.editor.adapter if self.editor.connected else ""
+            return self._adapters.get(aid) or self._adapters.get(self._active_adapter) or {}
+
+    def adapter_info(self) -> dict[str, Any]:
+        entry = self._active_adapter_entry()
+        with self.lock:
+            connected = bool(
+                self.editor.connected
+                and ago(self.editor.last_seen) <= float(self.settings.get("editor_seen_timeout"))
+            )
+        return {
+            "id": entry.get("id", ""),
+            "name": entry.get("name", ""),
+            "engine": entry.get("engine", ""),
+            "instructions": entry.get("instructions", ""),
+            "connected": connected,
+        }
 
     def tools(self) -> list[dict[str, Any]]:
-        with self.lock:
-            return list(self._tools)
+        return list(self._active_adapter_entry().get("tools") or [])
 
     def tools_text(self) -> str:
         lines = []
@@ -280,11 +336,13 @@ class Hub:
                 s.state = incoming if incoming in ("registered", "starting", "ready", "busy", "stopped") else "registered"
             editor = self._editor_status_locked()
             self._dispatch_locked()
+            info = self.adapter_info()
             return {
                 "ok": True,
                 "sessionId": sid,
                 "settings": self.settings.public(),
                 "tools": self.tools(),
+                "instructions": info.get("instructions", ""),
                 "editor": editor,
                 "state": s.state,
             }
@@ -709,11 +767,12 @@ class Hub:
 
     def execute(self, command: str, params: dict[str, Any], source: str = "") -> dict[str, Any]:
         command = str(command or "").strip()
+        tools = self.tools()
         if command == "list_tools":
             text = "Available commands:\n" + self.tools_text()
-            return {"ok": True, "text": text, "preview": f"{len(self._tools)} commands", "result": {"count": len(self._tools)}}
-        if command not in self._tools_by_name:
-            valid = ", ".join(t["name"] for t in self._tools)
+            return {"ok": True, "text": text, "preview": f"{len(tools)} commands", "result": {"count": len(tools)}}
+        if command not in {t["name"] for t in tools}:
+            valid = ", ".join(t["name"] for t in tools) or "(no editor adapter is registered)"
             return {"ok": False, "text": f'unknown command "{command}". Valid commands: {valid}', "preview": "unknown command"}
 
         timeout = float(self.settings.get("editor_timeout"))
@@ -758,6 +817,8 @@ class Hub:
             ed = self.editor
             was = ed.connected
             ed.id = str(p.get("editorId") or ed.id or "godot")
+            adapter = p.get("adapter") if isinstance(p.get("adapter"), dict) else {}
+            ed.adapter = str(adapter.get("id") or p.get("adapterId") or ed.adapter)
             ed.project = str(p.get("project") or ed.project)
             ed.project_path = str(p.get("projectPath") or ed.project_path)
             ed.engine = str(p.get("engine") or ed.engine)
@@ -770,7 +831,10 @@ class Hub:
             ed.last_seen = now()
             ed.connected = True
             if not was:
-                self.log("editor", f"Godot 插件已连接：{ed.project or ed.project_path}", project=ed.project)
+                self.log("editor", f"编辑器插件已连接：{ed.project or ed.project_path}", project=ed.project)
+            if adapter and self.register_adapter(adapter):
+                entry = self._adapters.get(str(adapter.get("id")), {})
+                self.log("editor", f"已注册编辑器指令：{entry.get('name') or ed.adapter}（{len(entry.get('tools', []))} 个命令）")
             cmds = [{"id": x.id, "command": x.command, "params": x.params} for x in ed.queue[:24]]
             if cmds:
                 ed.queue = ed.queue[24:]
@@ -778,6 +842,8 @@ class Hub:
                 "ok": True,
                 "commands": cmds,
                 "queue": len(ed.queue),
+                "adapter_ok": bool(self._adapters.get(ed.adapter)),
+                "need_adapter": not bool(self._adapters.get(ed.adapter)),
                 "settings": {
                     "max_result_chars": self.settings.get("max_result_chars"),
                     "poll_ms": int(self.settings.get("editor_poll_ms")),
@@ -803,9 +869,12 @@ class Hub:
     def _editor_status_locked(self) -> dict[str, Any]:
         ed = self.editor
         connected = bool(ed.connected and ago(ed.last_seen) <= float(self.settings.get("editor_seen_timeout")))
+        info = self._active_adapter_entry()
         return {
             "connected": connected,
             "id": ed.id,
+            "name": info.get("name") or ed.adapter,
+            "adapter": info.get("id") or ed.adapter,
             "project": ed.project,
             "project_path": ed.project_path,
             "engine": ed.engine or "Godot 4.7.2",

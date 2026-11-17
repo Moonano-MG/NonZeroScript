@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   check:
-    name: Versions, prompts, syntax
+    name: Versions, adapters, syntax
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Same version in all 7 places + prompt catalogue matches tools.json
+      - name: Same version everywhere + adapter catalogues match commands.gd
         run: python .github/build.py --check
 
       - name: Python sources compile

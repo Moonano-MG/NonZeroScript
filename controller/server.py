@@ -206,7 +206,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(hub.status())
 
         if path == "/api/tools":
-            return self._json({"ok": True, "version": __version__, "engine": "Godot 4.7.2", "tools": hub.tools()})
+            info = hub.adapter_info()
+            return self._json({
+                "ok": True,
+                "version": __version__,
+                "editor": info,
+                "instructions": info.get("instructions", ""),
+                "tools": hub.tools(),
+            })
 
         if path == "/api/logs":
             try:

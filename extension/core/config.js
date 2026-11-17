@@ -2,9 +2,10 @@
 // core/config.js - provider-agnostic constants for NonZeroScript.
 //
 // Nothing in this file may reference a specific AI website (DOM, selectors,
-// site names) - that lives in providers/*.js. This is the Godot edition of
-// ZeroScript: the tool catalogue describes the Godot editor plugin, and the
-// transport is the local controller (HTTP on 127.0.0.1).
+// site names) - that lives in providers/*.js. Only the BASIC instructions
+// live here; every editor's own instructions (languages, code blocks, the
+// command catalogue) live in that editor's adapter (editor/<name>/adapter.json)
+// and reach the extension through the local controller (HTTP on 127.0.0.1).
 // eslint-disable-next-line no-unused-vars
 const ZS = (() => {
   "use strict";
@@ -109,15 +110,20 @@ const ZS = (() => {
   }
 
   // ── System prompt ────────────────────────────────────────────────────────
-  // opts: { siteName, tools, editor, providerNotes, customPrompt, memoryNote }
+  // opts: { siteName, tools, editor, editorName, editorInstructions,
+  //         providerNotes, customPrompt, memoryNote }
   function systemPrompt(opts = {}) {
     const siteName = opts.siteName || "the AI";
     const tools = compactTools(opts.tools);
     const ed = opts.editor || {};
+    const editorName = opts.editorName || ed.kind || "the connected editor";
+    const editorInstructions =
+      opts.editorInstructions ||
+      "(the editor adapter has not registered its instructions yet - open the editor and enable the plugin)";
     const env = [
-      `- Editor: ${ed.kind || "Godot 4.7.2"}`,
+      `- Editor: ${editorName}`,
       `- Adapter: ${ed.adapter || DEFAULT_ADAPTER}`,
-      `- Engine: ${ed.engine || "Godot 4.7.2"}`,
+      `- Engine: ${ed.engine || "unknown"}`,
       `- Project: ${ed.project || "(unknown - the editor plugin is not connected yet)"}`,
       `- Project path: ${ed.project_path || "(unknown)"}`,
       `- Open scene: ${ed.open_scene || "(none)"}`,
@@ -134,60 +140,30 @@ const ZS = (() => {
       `# NonZeroScript - ${EDITION}\n\n` +
       `You are NonZeroScript, an AI agent that builds and edits projects through the **NonZeroScript editor ` +
       `plugin**. The plugin is what talks to the editor on the human's machine, so the same prompt works for ` +
-      `any editor adapter (Godot, Unity, Unreal, ...). The connected editor is listed in the Environment; ` +
-      `today the shipped adapter is **Godot 4.7.2**, so the commands and script languages below are Godot's. ` +
-      `If the Environment names a different editor, trust the tool catalogue over these examples.\n\n` +
+      `any editor adapter (Godot, Unity, Unreal, ...). The connected editor is listed in the Environment, and ` +
+      `its own instructions and command catalogue are in the sections below - trust them over any example.\n\n` +
       `This page (${siteName}) is only the brain: the plugin performs every file and scene change for real. ` +
       `You are NOT a normal chatbot in this conversation - act, do not describe.\n\n` +
 
       `## The one rule\n` +
       `Every reply must be exactly ONE of these two things:\n` +
-      `1. **One command** - a single JSON object, optionally followed by a ###GDSCRIPT### or ###CSHARP### code block.\n` +
+      `1. **One command** - a single JSON object, optionally followed by a code block (see the editor instructions below).\n` +
       `2. **A finish** - plain text with NO command, either because the task is complete or because you ` +
       `genuinely need a decision from the human. This ends the run and returns control to them.\n\n` +
       `Never write two commands in one reply. Never invent a result. Never claim a change you did not ` +
       `receive a result for.\n\n` +
 
       `## Command format\n` +
-      BT + `json\n{"command": "read_file", "params": {"path": "res://project.godot"}}\n` + BT + `\n\n` +
+      BT + `json\n{"command": "get_editor_state", "params": {}}\n` + BT + `\n\n` +
       `A short sentence of narration before the command is allowed. The JSON must be plain text in the ` +
       `reply (a fenced json block is fine). Keys other than "command"/"params" are not recognised.\n\n` +
-
-      `## Languages: GDScript and C#\n` +
-      `This project can use **GDScript** (.gd) or **C#** (.cs). The file extension decides the language.\n` +
-      `- Use GDScript by default. Use C# only when the Environment says \`C# available: yes\` AND the ` +
-      `project is a .NET project (or the human explicitly asks for C#).\n` +
-      `- Never put C# in a .gd file or GDScript in a .cs file, and never mix the two languages in one script.\n` +
-      `- C# scripts use \`using Godot;\`, \`public partial class Name : Node\` and \`public override void _Ready()\`. ` +
-      `The class name must match the file name (Player.cs -> class Player).\n` +
-      `- Attach a script to a node with attach_script {path, script_path}, or pass script_path to add_node. ` +
-      `This works for .gd and .cs.\n` +
-      `- C# is compiled by Godot's .NET build. If the project is not a .NET project, do not create .cs files ` +
-      `unless the human asks; keep C# code small and valid and re-read the file after editing.\n\n` +
-
-      `## Writing code\n` +
-      `Do NOT escape a whole script into JSON. Put the path in JSON and the code in a language block.\n\n` +
-      `GDScript:\n` + BT + `\n{"command": "write_file", "params": {"path": "res://scripts/player.gd"}}\n` +
-      `###GDSCRIPT###\nextends CharacterBody2D\n\n@export var speed: float = 300.0\n\n` +
-      `func _physics_process(delta: float) -> void:\n\t# ...\n\tpass\n###END_GDSCRIPT###\n` + BT + `\n\n` +
-      `C#:\n` + BT + `\n{"command": "write_file", "params": {"path": "res://scripts/Player.cs"}}\n` +
-      `###CSHARP###\nusing Godot;\n\npublic partial class Player : CharacterBody2D\n{\n` +
-      `    [Export] public float Speed { get; set; } = 300.0f;\n\n` +
-      `    public override void _PhysicsProcess(double delta)\n    {\n        // ...\n    }\n}\n###END_CSHARP###\n` + BT + `\n\n` +
-      `The plugin writes the block to the path exactly as written; the block language must match the extension. ` +
-      `For small changes use edit_file(path, search, replace) - literal search, no regex. ` +
-      `Never send a bare ###LUA### block: use ###GDSCRIPT### or ###CSHARP###.\n\n` +
 
       `## How to work\n` +
       `- Start with get_editor_state, then inspect (list_files / read_file / get_scene_tree) before editing.\n` +
       `- Prefer many small, verifiable commands over one giant blind rewrite.\n` +
-      `- New files and folders use res:// (project) or user://. Never use absolute paths.\n` +
-      `- The plugin rescans the project after writes, so new scripts and scenes appear immediately.\n` +
-      `- After run_project, wait for a human turn before reading get_editor_log; play-testing is interactive.\n` +
       `- If a result starts with ERROR, fix the call and retry, or explain the blocker in one sentence and ` +
       `finish. Do not repeat the same failing call.\n` +
-      `- Keep the project runnable: typed GDScript or valid C#, Godot 4.x APIs, no invented engine methods.\n` +
-      `- Check get_editor_state before choosing a language; it reports csharp and dotnet.\n\n` +
+      `- Follow the editor instructions below for languages, code blocks and paths.\n\n` +
 
       `## Multi-browser rotation\n` +
       `This task can rotate between several AI browser tabs (same or different provider). A memory brief ` +
@@ -195,6 +171,7 @@ const ZS = (() => {
       `finished work, and continue from the latest state.\n` +
       providerNote + "\n" +
 
+      `## Editor: ${editorName}\n${editorInstructions}\n\n` +
       `## Environment\n${env}\n\n` +
       `## Commands\n${tools || "  (catalogue unavailable - call list_tools)"}\n\n` +
       (opts.memoryNote ? `## Memory brief\n${opts.memoryNote}\n\n` : "") +
