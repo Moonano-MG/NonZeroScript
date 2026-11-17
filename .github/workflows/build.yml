@@ -1,9 +1,11 @@
 name: 构建 Build
 
-# 每次运行都会输出下载包：校验 -> 打三个包 -> 上传为 artifact（run 页面底部直接下载）。
-# dist/ 里的包随代码一起提交；仓库不发 Release，也不打 tag。
-#
-# 手动运行：Actions -> 构建 Build -> Run workflow
+# 每次运行都产出下载物（run 页面底部 Artifacts），GitHub 会自动把每个
+# artifact 打包成 zip 供下载：
+#   controller.exe         单文件 Windows 程序（PyInstaller，双击即用）
+#   extension              Chrome / Edge 插件文件夹（直接"加载已解压"）
+#   editor-godot-4.7.2     Godot 插件 addons/nonzeroscript（标准 GDScript）
+# 仓库里不再放 zip；手动运行：Actions -> 构建 Build -> Run workflow
 
 on:
   push:
@@ -14,8 +16,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Check + build packages
+  check:
+    name: Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,7 +28,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check versions and adapter catalogues
+      - name: Versions and adapter catalogues
         run: python .github/build.py --check
 
       - name: Python sources compile
@@ -47,51 +49,79 @@ jobs:
                   editor/godot-4.7.2/core/bridge.gd \
                   editor/godot-4.7.2/core/commands.gd
 
-      - name: Build controller.zip / extension.zip / editor-godot-4.7.2.zip
-        run: python .github/build.py
+  build:
+    name: Build (Windows 64-bit)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
 
-      - name: Show what was built
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Stage extension/ and addons/
+        run: python .github/build.py --out out
+
+      - name: Build controller.exe (PyInstaller, one file)
+        shell: pwsh
         run: |
-          ls -lh dist
-          cat dist/SHA256SUMS.txt
-          {
-            echo "## 下载包 / packages"
-            echo ""
-            echo "本页底部 **Artifacts** 里就是下面这几个文件，点名字即可单独下载："
-            echo ""
-            echo '```'
-            cat dist/SHA256SUMS.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          python -m pip install --quiet pyinstaller
+          pyinstaller --noconfirm --clean --onefile --name controller --paths controller --hidden-import hub --hidden-import server --hidden-import settings --hidden-import memory --hidden-import metrics --hidden-import version --add-data "controller/ui;ui" --distpath out/controller --workpath "$env:RUNNER_TEMP/pyi" controller/main.py
 
-      - name: Upload controller.zip
+      - name: Smoke test controller.exe
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "out\controller\controller.exe" -ArgumentList "--no-open" -PassThru
+          try {
+            $ok = $false
+            foreach ($i in 1..15) {
+              Start-Sleep -Seconds 2
+              try {
+                $r = Invoke-RestMethod "http://127.0.0.1:8790/api/status" -TimeoutSec 3
+                if ($r) { $ok = $true; break }
+              } catch {}
+            }
+            if (-not $ok) { throw "controller.exe did not answer on http://127.0.0.1:8790/api/status" }
+            "smoke OK: controller.exe answered /api/status"
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Write run summary
+        shell: pwsh
+        run: |
+          @(
+            "## 下载物 / outputs",
+            "",
+            "本页底部 **Artifacts**（点名字单独下载，GitHub 已自动打包为 zip）：",
+            "",
+            "- ``controller.exe`` — 单文件控制器，双击即用",
+            "- ``extension`` — Chrome / Edge 插件文件夹（内含 ``extension/``）",
+            "- ``editor-godot-4.7.2`` — Godot 插件（内含 ``addons/nonzeroscript/``）"
+          ) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload controller.exe
         uses: actions/upload-artifact@v7
         with:
-          name: controller.zip
-          path: dist/controller.zip
+          name: controller.exe
+          path: out/controller
           compression-level: 0
           if-no-files-found: error
 
-      - name: Upload extension.zip
+      - name: Upload extension
         uses: actions/upload-artifact@v7
         with:
-          name: extension.zip
-          path: dist/extension.zip
+          name: extension
+          path: out/browser
           compression-level: 0
           if-no-files-found: error
 
-      - name: Upload editor-godot-4.7.2.zip
+      - name: Upload editor-godot-4.7.2
         uses: actions/upload-artifact@v7
         with:
-          name: editor-godot-4.7.2.zip
-          path: dist/editor-godot-4.7.2.zip
-          compression-level: 0
-          if-no-files-found: error
-
-      - name: Upload SHA256SUMS.txt
-        uses: actions/upload-artifact@v7
-        with:
-          name: SHA256SUMS.txt
-          path: dist/SHA256SUMS.txt
+          name: editor-godot-4.7.2
+          path: out/editor
           compression-level: 0
           if-no-files-found: error

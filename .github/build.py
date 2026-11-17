@@ -3,9 +3,12 @@
 
 Run by .github/workflows/build.yml, and runnable by hand:
 
-    python .github/build.py            # build dist/*.zip + SHA256SUMS.txt
-    python .github/build.py --check    # verify versions and prompt docs only
-    python .github/build.py --out out  # write somewhere else
+    python .github/build.py --check    # verify versions and adapter catalogues
+    python .github/build.py --out out  # stage extension/ and addons/ folders
+
+controller.exe is built by PyInstaller in .github/workflows/build.yml
+(windows-latest). GitHub wraps every artifact in a zip on download, so the
+staging output is plain folders - no archives are made here.
 
 Standard library only; no pip install, no other build tool.
 """
@@ -13,16 +16,13 @@ Standard library only; no pip install, no other build tool.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import shutil
 import sys
-import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DIST = ROOT / "dist"
 
 # Files that must all carry the same version as version.txt.
 # extension/manifest.json is checked separately: Chrome only accepts numbers in
@@ -131,7 +131,7 @@ def check_adapter() -> list[str]:
     return problems
 
 
-# ---------------------------------------------------------------------------- build
+# --------------------------------------------------------------------------- build
 
 
 def iter_files(base: Path, skip_top: tuple[str, ...] = ()):
@@ -139,58 +139,24 @@ def iter_files(base: Path, skip_top: tuple[str, ...] = ()):
         if not path.is_file():
             continue
         rel = path.relative_to(base)
-        if rel.parts and rel.parts[0] in skip_top:
+        if rel.parts[0] in SKIP_DIRS or rel.parts[0] in skip_top:
             continue
-        if any(part in SKIP_DIRS for part in rel.parts):
+        if rel.name.startswith(".") or rel.name == "build.json":
             continue
-        if path.suffix in SKIP_SUFFIXES or path.name.startswith("."):
+        if any(part in SKIP_DIRS for part in rel.parts[1:]):
+            continue
+        if path.suffix in SKIP_SUFFIXES:
             continue
         yield rel
 
 
-def add_tree(zf: zipfile.ZipFile, base: Path, prefix: str, skip_top: tuple[str, ...] = ()) -> int:
+def copy_tree(src: Path, dst: Path, skip_top: tuple[str, ...] = ()) -> int:
     count = 0
-    for rel in iter_files(base, skip_top):
-        zf.write(base / rel, "/".join(p for p in (prefix, rel.as_posix()) if p))
+    for rel in iter_files(src, skip_top):
+        target = dst / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src / rel, target)
         count += 1
-    return count
-
-
-def add_text(zf: zipfile.ZipFile, name: str, text: str) -> None:
-    zf.writestr(name, text.replace("\r\n", "\n"), compress_type=zipfile.ZIP_DEFLATED)
-
-
-def install_text(kind: str, version: str, extra: str = "") -> str:
-    head = f"NonZeroScript {version}\n{'=' * (16 + len(version))}\n\n"
-    if kind == "controller":
-        body = (
-            "Controller (visual console + local relay)\n\n"
-            "1. Install Python 3.9 or newer: https://www.python.org/downloads/\n"
-            "2. Double-click controller/start.bat\n"
-            "   Currently only Windows 10/11 (64-bit) is built.\n"
-            "3. The console opens at http://127.0.0.1:8790/\n\n"
-            "Keep the window open while you work. No pip install is needed.\n"
-        )
-    elif kind == "extension":
-        body = (
-            "Browser extension (Chrome and Edge; the same folder works in both)\n\n"
-            "Chrome:  chrome://extensions  -> Developer mode -> Load unpacked -> extension/\n"
-            "Edge:    edge://extensions    -> Developer mode -> Load unpacked -> extension/\n\n"
-            "Then open a supported AI chat (for example https://chat.deepseek.com),\n"
-            "start a new conversation, and press Start in the NonZeroScript bar.\n"
-        )
-    else:
-        body = ""
-    return head + body + extra
-
-
-def make_zip(path: Path, build) -> int:
-    tmp = path.with_suffix(".zip.tmp")
-    if tmp.exists():
-        tmp.unlink()
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        count = build(zf)
-    tmp.replace(path)
     return count
 
 
@@ -213,82 +179,46 @@ def editor_target(folder: Path) -> str:
     return "addons/nonzeroscript"
 
 
-def build_editor(folder: Path, path: Path) -> int:
-    target = editor_target(folder)
+def stage(out: Path) -> int:
+    """Lay out the download folders. GitHub zips each artifact on upload, so
+    nothing here is archived - the folders themselves are the products:
 
-    def build(zf: zipfile.ZipFile) -> int:
-        add_text(
-            zf,
-            "INSTALL.txt",
-            install_text(
-                "editor",
-                read_version(),
-                "\nEditor plugin\n\n"
-                "The files are already placed under the correct path in this archive:\n"
-                f"  {target}/\n\n"
-                "Copy that folder into your project root, so your project contains\n"
-                f"  {target}/plugin.cfg\n"
-                "Then enable NonZeroScript in the editor's plugin settings.\n",
-            ),
-        )
-        return add_tree(zf, folder, target, skip_top=("build.json",))
+      browser/extension/            the finished Chrome + Edge extension
+      editor/addons/<name>/         the Godot plugin (standard GDScript)
+      controller/ is built in CI    controller.exe via PyInstaller (windows-latest)
 
-    return make_zip(path, build)
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def build(out: Path) -> int:
+    LICENSE is copied next to each product (GPL) and, as the only file beside a
+    single folder, it also keeps that folder at the artifact root.
+    """
     version = read_version()
     if out.exists():
         shutil.rmtree(out)
-    out.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True)
 
-    print(f"\nNonZeroScript {version} — building download packages\n")
+    print(f"\nNonZeroScript {version} — staging download folders\n")
 
-    n = make_zip(out / "controller.zip", lambda zf: (
-        add_text(zf, "INSTALL.txt", install_text("controller", version)),
-        add_tree(zf, ROOT / "controller", "controller", skip_top=("data",)),
-    )[1])
-    print(f"  [ok] controller.zip  {n} files  {(out / 'controller.zip').stat().st_size // 1024} KB")
-
-    n = make_zip(out / "extension.zip", lambda zf: (
-        add_text(zf, "INSTALL.txt", install_text("extension", version)),
-        add_tree(zf, ROOT / "extension", "extension"),
-    )[1])
-    print(f"  [ok] extension.zip   {n} files  {(out / 'extension.zip').stat().st_size // 1024} KB")
+    ext = out / "browser" / "extension"
+    n = copy_tree(ROOT / "extension", ext)
+    shutil.copy2(ROOT / "LICENSE", out / "browser" / "LICENSE")
+    print(f"  [ok] extension/              {n} files  (Chrome + Edge, load unpacked)")
 
     for folder in editor_folders():
-        path = out / f"editor-{folder.name}.zip"
-        n = build_editor(folder, path)
-        print(f"  [ok] {path.name}  {n} files -> addons/nonzeroscript/")
+        target = editor_target(folder)
+        n = copy_tree(folder, out / "editor" / target, skip_top=("build.json",))
+        shutil.copy2(ROOT / "LICENSE", out / "editor" / "LICENSE")
+        print(f"  [ok] {target:<22} {n} files  (standard GDScript addon)")
 
-    sums = out / "SHA256SUMS.txt"
-    lines = []
-    for path in sorted(out.glob("*.zip")):
-        lines.append(f"{sha256(path)}  {path.name}")
-    sums.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    try:
-        where = sums.relative_to(ROOT)
-    except ValueError:
-        where = sums
-    print(f"\nChecksums -> {where}\n")
-    for line in lines:
-        print("  " + line)
+    (out / "controller").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "LICENSE", out / "controller" / "LICENSE")
+    print("  [ ] controller.exe           built by PyInstaller in the workflow")
     print()
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Build NonZeroScript download packages")
-    ap.add_argument("--check", action="store_true", help="verify versions and adapter catalogues, build nothing")
-    ap.add_argument("--out", default=None, help="output folder (default: dist/)")
+    ap = argparse.ArgumentParser(description="Build NonZeroScript outputs")
+    ap.add_argument("--check", action="store_true", help="verify versions and adapter catalogues, write nothing")
+    ap.add_argument("--out", default="out", help="staging folder (default: out/)")
     args = ap.parse_args(argv)
 
     problems = check_versions() + check_adapter()
@@ -302,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"OK NonZeroScript {read_version()}: versions and adapter catalogues are consistent")
         return 0
 
-    return build(Path(args.out) if args.out else DIST)
+    return stage(Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out)
 
 
 if __name__ == "__main__":
