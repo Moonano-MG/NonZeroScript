@@ -48,11 +48,20 @@
     }, ms);
   }
 
+  // When the console runs inside the native app (Tauri webview) the page is
+  // loaded from the app's custom scheme, not from the controller, so API calls
+  // need an absolute base. Served from the controller itself (browser
+  // fallback) the base stays empty and same-origin calls keep working.
+  const API_BASE =
+    location.protocol === "http:" || location.protocol === "https:"
+      ? ""
+      : "http://127.0.0.1:8790";
+
   async function api(path, body) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 65000);
     try {
-      const res = await fetch(path, {
+      const res = await fetch(API_BASE + path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body || {}),

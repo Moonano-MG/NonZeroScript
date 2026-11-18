@@ -39,6 +39,8 @@ func _enter_tree() -> void:
 		_bridge.status_changed.connect(_dock.on_status)
 	if _bridge.has_signal("log_line"):
 		_bridge.log_line.connect(_dock.on_log)
+	if _bridge.has_signal("chat_event"):
+		_bridge.chat_event.connect(_dock.on_chat_event)
 
 	print("[NonZeroScript] plugin loaded - controller: ", _bridge.controller_url)
 

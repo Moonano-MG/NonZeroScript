@@ -1,0 +1,12 @@
+{
+  "name": "nonzeroscript-console",
+  "private": true,
+  "version": "0.1.0-dev",
+  "description": "NonZeroScript native console (Tauri 2). The UI lives in ui/ and is embedded into NonZeroScript.exe; controller.exe runs beside it as the relay.",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

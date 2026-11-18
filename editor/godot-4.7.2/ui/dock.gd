@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # NonZeroScript - editor dock (Godot 4.7.2).
 # Shows the controller connection, lets the user change the URL, disable
-# writing, rescan the project and open the visual console.
+# writing, rescan the project and open the visual console. The AI chat panel
+# talks to the bound AI webpage session (the webpage is the designated AI).
 
 @tool
 extends VBoxContainer
@@ -18,6 +19,8 @@ var _allow: CheckBox
 var _enabled: CheckBox
 var _log: RichTextLabel
 var _log_lines: Array = []
+var _chat: RichTextLabel
+var _chat_input: LineEdit
 
 
 func _ready() -> void:
@@ -106,6 +109,36 @@ func _build() -> void:
 
 	add_child(HSeparator.new())
 
+	var chat_label := Label.new()
+	chat_label.text = "AI 对话"
+	chat_label.add_theme_font_size_override("font_size", 10)
+	chat_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
+	add_child(chat_label)
+
+	_chat = RichTextLabel.new()
+	_chat.bbcode_enabled = true
+	_chat.scroll_following = true
+	_chat.custom_minimum_size = Vector2(0, 120)
+	_chat.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_chat.add_theme_font_size_override("normal_font_size", 10)
+	_chat.add_theme_color_override("default_color", Color(0.82, 0.84, 0.9))
+	_chat.placeholder_text = "在这里直接和 AI 对话；也可以在已绑定的 AI 网页里继续。"
+	add_child(_chat)
+
+	var chat_row := HBoxContainer.new()
+	_chat_input = LineEdit.new()
+	_chat_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_chat_input.placeholder_text = "给 AI 发消息…"
+	_chat_input.text_submitted.connect(func(_t): _on_chat_send())
+	chat_row.add_child(_chat_input)
+	var send := Button.new()
+	send.text = "发送"
+	send.pressed.connect(_on_chat_send)
+	chat_row.add_child(send)
+	add_child(chat_row)
+
+	add_child(HSeparator.new())
+
 	var log_label := Label.new()
 	log_label.text = "最近命令"
 	log_label.add_theme_font_size_override("font_size", 10)
@@ -156,6 +189,42 @@ func on_log(text: String) -> void:
 	while _log_lines.size() > 140:
 		_log_lines.pop_front()
 	_log.text = "\n".join(_log_lines)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  CHAT
+# ══════════════════════════════════════════════════════════════════════════
+func on_chat_event(ev: Dictionary) -> void:
+	if _chat == null:
+		return
+	var kind := str(ev.get("kind", "status"))
+	var text := str(ev.get("text", "")).strip_edges()
+	if text.is_empty():
+		return
+	var line := ""
+	match kind:
+		"user":
+			line = "[color=#7cc0ff]你：[/color]" + text
+		"ai":
+			line = "[color=#9fe6a0]AI：[/color]" + text
+		"tool":
+			line = "[color=#c9a0ff]⚙ [/color]" + text
+		"error":
+			line = "[color=#ff8b8b]✗ " + text + "[/color]"
+		_:
+			line = "[color=#8a8f9c]· " + text + "[/color]"
+	_chat.append_text(line + "\n")
+
+
+func _on_chat_send() -> void:
+	if _chat_input == null:
+		return
+	var text := _chat_input.text.strip_edges()
+	if text.is_empty():
+		return
+	if bridge != null:
+		bridge.send_chat(text)
+	_chat_input.text = ""
 
 
 # ══════════════════════════════════════════════════════════════════════════

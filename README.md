@@ -21,7 +21,7 @@ It is **multi-editor by design**: the browser extension and the console only spe
 | | ZeroScript (Roblox) | **NonZeroScript (Godot)** |
 |---|---|---|
 | Target | Roblox Studio via MCP | **Any game editor via a plugin** (Godot 4.7.2 included) |
-| Control | Small bar in the chat + CLI bridge | **Visual console + local relay**, no command line |
+| Control | Small bar in the chat + CLI bridge | **Native console app + local relay**, no command line |
 | Input pacing | Fixed internal waits | **Random wait between a minimum and maximum number of seconds before every simulated input** |
 | Browsers | One tab | **You choose which browsers join**; two or more enable rotation, with a shared timeline memory |
 | Memory | Per-place project memory | **Timeline files per task and per browser session**, used to hand work between browsers |
@@ -40,20 +40,21 @@ It is **multi-editor by design**: the browser extension and the console only spe
           │  HTTP (localhost)                     │  HTTP poll (localhost)
           ▼                                       ▼
  ┌──────────────────────────────────────────────────────────────────────┐
- │  controller/  — visual console + local relay + rotation + memory      │
+ │  console/ (Tauri UI) + controller/ (relay) — rotation + memory        │
  │  http://127.0.0.1:8790                                                │
  └──────────────────────────────────────────────────────────────────────┘
 ```
 
 1. The **browser extension** runs inside the AI chat page. It types the prompt, waits for the answer, parses **one** command and reports it.
-2. The **controller** is a small local program (Python standard library only). It shows a **visual console**, decides which browser tab gets the next turn (round-robin), executes the command through the editor and stores the timeline.
+2. The **console + controller** run locally and stay offline: the console is a small **native desktop app** (Tauri 2: Rust window + JavaScript UI) and the controller is its relay (Python standard library only). Together they decide which browser tab gets the next turn (round-robin), execute the command through the editor and store the timeline.
 3. The **editor plugin** performs the real work in your project: files, scenes, nodes, project settings, play-tests and logs. The shipped adapter is Godot 4.7.2; the protocol is the same for any editor.
 
 No cloud service is involved. Everything runs on your machine, and the only network traffic is between your browser, the controller and Godot on `127.0.0.1`.
 
 ## Features
 
-- **Visual console instead of a command line.** Start the controller by double-clicking a script; the console opens in your browser. Queue tasks, watch sessions, inspect the timeline, edit the delay and rotation settings.
+- **Native console instead of a command line.** Double-click **NonZeroScript.exe** — a real desktop window (Tauri 2), not a browser tab. It starts the relay itself. Queue tasks, watch sessions, inspect the timeline, edit the delay and rotation settings.
+- **Talk to the AI where you work.** The Godot dock has a chat panel: type there and the message becomes a task for the bound AI webpage session (the webpage is just the designated AI). You can also keep typing directly in the AI webpage — both sides share one task flow, one memory and one timeline.
 - **Random input delay.** Set a minimum and maximum number of seconds (e.g. 2–6 s). Before every simulated input — the startup prompt, a task, or a tool result — NonZeroScript waits a random time in that range. This is much gentler on AI sites than instant, regular automation.
 - **You pick the browsers.** Open as many browsers or tabs as you like, press **启动 / Start** in each, then tick **轮换** only for the ones that should take turns. One ticked session = single-browser mode; **two or more ticked sessions turn rotation on** (round-robin), and the console always shows which mode is active.
 - **Three performance modes.** **极致性能 / eco** keeps the relay tiny (target: **under 30 MB RAM**, small logs, slow UI refresh), **平均 / balanced** is the default, and **最快速度 / turbo** polls hardest and keeps the longest results. One dropdown, no restart.
@@ -68,18 +69,18 @@ The downloads are built by GitHub on every push — open [Actions → 构建 Bui
 
 | Artifact | What it is | What to do |
 |---|---|---|
-| **`controller.exe`** | the whole controller (visual console + local relay) as one Windows program | double-click it — **no Python needed** |
+| **`NonZeroScript`** | the native console: `NonZeroScript.exe` + its `controller.exe` relay + `LICENSE` | keep the folder anywhere and double-click **NonZeroScript.exe** — **no Python needed** |
 | **`extension`** | the Chrome **and** Edge extension folder (the basic instructions the AI is given are inside) | *Load unpacked* → pick the `extension` folder |
 | **`editor-godot-4.7.2`** | the Godot plugin as `addons/nonzeroscript/` (standard GDScript; its commands and editor instructions are inside) | copy `addons/` into your project root, enable the plugin |
 
 > **Platforms:** currently only **Windows 10/11 (64-bit)** is built. Other platforms are not supported yet.
 
-### 1. The controller (visual console + relay)
+### 1. The console (native app) + relay
 
-- Double-click **`controller.exe`**. That is the whole program — nothing else to install.
-- A console window opens and your browser shows **http://127.0.0.1:8790/** — the visual console.
+- Put the `NonZeroScript` folder anywhere and double-click **`NonZeroScript.exe`**. Keep `controller.exe` in the same folder — the console starts the relay itself. Nothing else to install.
+- The console window opens and the relay answers at **http://127.0.0.1:8790/** (its status shows in the console footer).
 
-> Keep the controller window open while you work. Closing it stops the relay. Changing the port requires a restart.
+> Keep the console open while you work. Closing it stops the relay. Changing the port requires a restart.
 
 ### 2. The browser extension (Chrome / Edge)
 
@@ -121,9 +122,9 @@ This walks through a complete first session.
 
 1. **Create a project.** Open Godot 4.7.2, create a new project (for example `MyFirstGame`), and open it.
 2. **Install the plugin.** Copy `addons/nonzeroscript` into the project (step 3 above), then enable it in *Project Settings → Plugins*.
-3. **Start the controller.** Double-click `controller.exe`. The visual console opens at `http://127.0.0.1:8790/`.
+3. **Start the console.** Double-click `NonZeroScript.exe`. The native console opens and brings the relay up at `http://127.0.0.1:8790/`.
 4. **Connect a browser.** Load the extension, open **https://chat.deepseek.com** (recommended) or any supported AI, start a **new chat**, and click **启动** in the NonZeroScript bar above the input box. The bar turns green and says *已就绪 · 等待操控台派发任务*.
-5. **Queue a task.** In the console, type something like:
+5. **Queue a task.** In the console (or in the Godot dock's **AI 对话** panel), type something like:
 
    > Create a main menu for my project: a new scene at `res://scenes/main_menu.tscn` with a title label, a "Start" button and a "Quit" button. Put the script at `res://scripts/main_menu.gd`, make the buttons work, and set the project's main scene to the menu.
 
@@ -300,7 +301,7 @@ Long results are capped (12 000 characters by default) so one command cannot eat
 - **Godot 4.7.2** (the editor plugin targets 4.7.2; it may work on nearby 4.x releases, but that is untested)
 - C# projects also need the **.NET build of Godot 4.7.2** and a .NET SDK; GDScript needs nothing extra
 - **Chrome or Edge** (Chromium 111+; the same extension folder works in both)
-- **Windows 10/11 (64-bit)** — currently the only built platform. The controller is a single `controller.exe`; nothing else to install.
+- **Windows 10/11 (64-bit)** — currently the only built platform. The console ships as `NonZeroScript.exe` + its `controller.exe` relay; nothing else to install.
 - **Linux is not supported**: there is no Linux launcher or package.
 
 ## Troubleshooting
@@ -309,7 +310,7 @@ Long results are capped (12 000 characters by default) so one command cannot eat
 Open the project in Godot and enable the plugin under *Project Settings → Plugins*. Check the dock's URL matches the controller (`http://127.0.0.1:8790` by default) and click **重新连接**.
 
 **The page bar says 中转未运行.**
-Start the controller. If it is running on another port, open the extension popup and set the same address there (and in the Godot dock).
+Start the console (`NonZeroScript.exe`). If the relay runs on another port, open the extension popup and set the same address there (and in the Godot dock).
 
 **Port 8790 is already in use.**
 Close the other controller, or start it on another port and put the same address in the extension popup and the Godot dock.
@@ -324,7 +325,7 @@ AI sites change their layout now and then; the extension is updated to match. Un
 The protocol is one command per reply; a reply with no command means "finished or I need a decision". The console shows the final reply. Queue the next task to continue.
 
 **How do I delete the memory?**
-Stop the controller and delete `controller/data/memory/`. Settings and memory are local files; nothing is uploaded.
+Close the console and delete the `data/memory/` folder next to the exe (from source: `controller/data/memory/`). Settings and memory are local files; nothing is uploaded.
 
 ## Support and credits
 

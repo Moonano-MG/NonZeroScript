@@ -6,9 +6,11 @@ Run by .github/workflows/build.yml, and runnable by hand:
     python .github/build.py --check    # verify versions and adapter catalogues
     python .github/build.py --out out  # stage extension/ and addons/ folders
 
-controller.exe is built by PyInstaller in .github/workflows/build.yml
-(windows-latest). GitHub wraps every artifact in a zip on download, so the
-staging output is plain folders - no archives are made here.
+The Windows programs are built in .github/workflows/build.yml (windows-latest):
+NonZeroScript.exe is the native console (Tauri 2, from console/) and
+controller.exe is its relay (PyInstaller). GitHub wraps every artifact in a
+zip on download, so the staging output is plain folders - no archives are
+made here.
 
 Standard library only; no pip install, no other build tool.
 """
@@ -79,6 +81,25 @@ def check_versions() -> list[str]:
             problems.append(f"extension/manifest.json: version_name {manifest.get('version_name')!r} != {expected}")
         if manifest.get("version") != manifest_numeric(expected):
             problems.append(f"extension/manifest.json: version {manifest.get('version')!r} != {manifest_numeric(expected)}")
+    # The Tauri console carries the version in semver form, without the "v".
+    plain = expected[1:] if expected.startswith("v") else expected
+    try:
+        conf = json.loads((ROOT / "console" / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        problems.append(f"console/src-tauri/tauri.conf.json: {exc}")
+    else:
+        if str(conf.get("version")) != plain:
+            problems.append(f"console/src-tauri/tauri.conf.json: version {conf.get('version')!r} != {plain}")
+    try:
+        cargo = (ROOT / "console" / "src-tauri" / "Cargo.toml").read_text(encoding="utf-8")
+    except OSError as exc:
+        problems.append(f"console/src-tauri/Cargo.toml: {exc}")
+    else:
+        match = re.search(r'(?m)^version = "([^"]+)"', cargo)
+        if not match:
+            problems.append("console/src-tauri/Cargo.toml: no package version found")
+        elif match.group(1) != plain:
+            problems.append(f"console/src-tauri/Cargo.toml: version {match.group(1)} != {plain}")
     return problems
 
 
@@ -185,7 +206,9 @@ def stage(out: Path) -> int:
 
       browser/extension/            the finished Chrome + Edge extension
       editor/addons/<name>/         the Godot plugin (standard GDScript)
-      controller/ is built in CI    controller.exe via PyInstaller (windows-latest)
+      app/ is completed in CI       NonZeroScript.exe (Tauri console) and its
+                                    controller.exe relay are built in the
+                                    workflow and dropped next to the LICENSE
 
     LICENSE is copied next to each product (GPL) and, as the only file beside a
     single folder, it also keeps that folder at the artifact root.
@@ -208,9 +231,10 @@ def stage(out: Path) -> int:
         shutil.copy2(ROOT / "LICENSE", out / "editor" / "LICENSE")
         print(f"  [ok] {target:<22} {n} files  (standard GDScript addon)")
 
-    (out / "controller").mkdir(parents=True, exist_ok=True)
-    shutil.copy2(ROOT / "LICENSE", out / "controller" / "LICENSE")
-    print("  [ ] controller.exe           built by PyInstaller in the workflow")
+    (out / "app").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "LICENSE", out / "app" / "LICENSE")
+    print("  [ ] NonZeroScript.exe        native console, built by Tauri in the workflow")
+    print("  [ ] controller.exe           relay, built by PyInstaller in the workflow")
     print()
     return 0
 

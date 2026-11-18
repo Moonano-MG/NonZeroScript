@@ -15,6 +15,7 @@ extends Node
 
 signal status_changed(info: Dictionary)
 signal log_line(text: String)
+signal chat_event(ev: Dictionary)
 
 const PLUGIN_VERSION := "v0.1.0-dev"
 const CONFIG_PATH := "user://nonzeroscript_editor.cfg"
@@ -40,6 +41,11 @@ var _editor_id := ""
 var _last_error := ""
 var _last_status_sig := ""
 var _outbox: Array = []
+# Conversation sync: the dock chat sends through _chat_outbox (the shared
+# HTTPRequest can only run one request at a time) and pulls new chat events
+# with every poll (server returns events with seq > _chat_seq).
+var _chat_outbox: Array[String] = []
+var _chat_seq := 0
 # This adapter's instructions (adapter.json): the command catalogue and the
 # editor-specific prompt text. Registered with the controller on connect, so
 # the controller knows which editor is open and what it can do.
@@ -71,7 +77,9 @@ func _process(delta: float) -> void:
 
 func _run_once() -> void:
 	_busy = true
-	if not _outbox.is_empty():
+	if not _chat_outbox.is_empty():
+		await _send_one_chat()
+	elif not _outbox.is_empty():
 		await _send_one_result()
 	else:
 		await _poll()
@@ -121,9 +129,40 @@ func _poll() -> void:
 	if data.has("commands") and typeof(data["commands"]) == TYPE_ARRAY:
 		for item in data["commands"]:
 			_execute(item)
+	_drain_chat(data)
 	while not _outbox.is_empty():
 		await _send_one_result()
 	_emit_status(data)
+
+
+# Conversation events from the controller (typed in the dock, the console or
+# produced by the AI task run). Forwarded to the dock as chat_event signals.
+func _drain_chat(data: Dictionary) -> void:
+	if not data.has("chat") or typeof(data["chat"]) != TYPE_ARRAY:
+		return
+	for ev in data["chat"]:
+		if typeof(ev) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = ev
+		_chat_seq = maxi(_chat_seq, int(d.get("seq", 0)))
+		chat_event.emit(d)
+
+
+# A chat message typed in the editor dock. The controller turns it into a
+# task for the bound AI webpage session (the webpage is the designated AI).
+func send_chat(text: String) -> void:
+	var t := str(text).strip_edges()
+	if t.is_empty():
+		return
+	_chat_outbox.append(t)
+
+
+func _send_one_chat() -> void:
+	var text := _chat_outbox[0]
+	_chat_outbox.remove_at(0)
+	var res := await _post("/api/editor/chat", {"text": text, "editorId": _editor_id})
+	if _http_failed(res):
+		_log("chat send failed")
 
 
 # The console picks a performance mode; the controller forwards the cadence it
@@ -241,6 +280,7 @@ func _status_body() -> Dictionary:
 		"writeEnabled": bool(commands.allow_write) if commands != null else true,
 		"csharp": _editor_supports_csharp(),
 		"dotnet": _editor_is_dotnet(),
+		"chatSeq": _chat_seq,
 	}
 	# Send the instructions until the controller confirms it has them.
 	if not _adapter_sent and not _adapter.is_empty():

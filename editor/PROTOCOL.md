@@ -44,6 +44,7 @@ Request body:
 | `writeEnabled` | bool | The human's write toggle |
 | `csharp` | bool | (optional) C# toolchain available |
 | `dotnet` | bool | (optional) project has `.csproj`/`.sln` |
+| `chatSeq` | int | (optional) highest conversation event seq the adapter has seen; the response returns newer events |
 
 Response:
 
@@ -52,6 +53,7 @@ Response:
   "ok": true,
   "commands": [{"id": "ab12cd", "command": "read_file", "params": {"path": "res://project.godot"}}],
   "queue": 0,
+  "chat": [{"seq": 12, "ts": "2026-11-15T11:00:00Z", "kind": "ai", "text": "…"}],
   "settings": {"max_result_chars": 12000, "poll_ms": 400, "perf_mode": "balanced"},
   "controller": {"version": "v0.1.0-dev", "now": "2026-11-15T11:00:00Z"}
 }
@@ -62,6 +64,22 @@ Response:
   down). `max_result_chars` is the cap applied to the result text.
 - A command name the adapter does not implement must return an `ok: false`
   result with a clear error, never an exception.
+- `chat` holds conversation events with `seq` greater than the request's
+  `chatSeq` (at most 40): `kind` is `user` (the human typed a message),
+  `ai` (the AI's reply), `tool` (a command result), `status` or `error`,
+  and `text` is the display line.
+
+## `POST /api/editor/chat`
+
+```json
+{"text": "把 Player 的速度改成 300", "editorId": "godot-1a2b3c4d"}
+```
+
+- A message typed in the editor's chat panel. The controller turns it into a
+  task for the bound AI webpage session (the webpage is just the designated
+  AI); the progress and replies come back through the `chat` poll events, so
+  the editor does not need a second channel.
+- Replies `{"ok": true, "task": …}` or `{"ok": false, "error": …}`.
 
 ## `POST /api/editor/result`
 

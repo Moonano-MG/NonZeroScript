@@ -97,8 +97,31 @@ class Handler(BaseHTTPRequestHandler):
             return False
         if parsed.scheme in ("chrome-extension", "moz-extension", "safari-web-extension"):
             return True
+        # The native console (Tauri 2 webview) loads the UI from a custom
+        # scheme; its origin is either "tauri://localhost" or, on WebView2,
+        # "http://tauri.localhost".
+        if parsed.scheme == "tauri" or parsed.netloc.lower() == "tauri.localhost":
+            return True
         host = (self.headers.get("Host") or "").strip().lower()
         return bool(host) and parsed.netloc.lower() == host
+
+    def _cors_headers(self) -> dict[str, str]:
+        """The Tauri webview is a different origin than the controller, so it
+        needs CORS. Only the native console origin gets it."""
+        origin = (self.headers.get("Origin") or "").strip()
+        if not origin:
+            return {}
+        try:
+            parsed = urlparse(origin)
+        except ValueError:
+            return {}
+        if parsed.scheme == "tauri" or parsed.netloc.lower() == "tauri.localhost":
+            return {
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+            }
+        return {}
 
     def _send(self, code: int, body: bytes, ctype: str, extra: dict[str, str] | None = None) -> None:
         self.send_response(code)
@@ -106,6 +129,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in self._cors_headers().items():
+            self.send_header(k, v)
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -148,10 +173,13 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── verbs ─────────────────────────────────────────────────────────────
     def do_OPTIONS(self) -> None:  # noqa: N802
-        # No CORS headers on purpose: cross-site JSON posts must fail their
-        # preflight. The extension has host permissions, so it is not affected.
+        # Cross-site JSON posts must fail their preflight: only the native
+        # console (Tauri webview) origin gets CORS headers. The extension has
+        # host permissions, so it is not affected.
         self.send_response(204)
         self.send_header("Content-Length", "0")
+        for k, v in self._cors_headers().items():
+            self.send_header(k, v)
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
@@ -257,6 +285,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(hub.editor_poll(p))
         if path == "/api/editor/result":
             return self._json(hub.editor_result(p))
+        if path == "/api/editor/chat":
+            # A message typed in the editor dock. It becomes a task for the
+            # bound AI webpage session (the webpage is just the designated AI).
+            return self._json(hub.editor_chat(str(p.get("text") or "")))
 
         # ── tasks ─────────────────────────────────────────────────────────
         if path == "/api/task/add":
