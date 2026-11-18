@@ -36,6 +36,17 @@ except ImportError:
 
 # Bundled resources (ui/, tools.json). Under PyInstaller these live in the
 # temporary extraction dir (_MEIPASS); the data folder must NOT live there.
+# A windowed run (the native console spawns this relay with file/null std
+# streams) gets locale text streams - cp1252 on an English Windows - and the
+# banner below is full of CJK. Without this, the very first print() raises
+# UnicodeEncodeError and the relay dies before it ever binds a port.
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None:
+        try:
+            _stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
 BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 BANNER = r"""
