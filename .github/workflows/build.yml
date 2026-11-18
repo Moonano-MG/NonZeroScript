@@ -88,41 +88,63 @@ jobs:
           npx tauri build
           Copy-Item "src-tauri\target\release\nonzeroscript-console.exe" "..\out\app\NonZeroScript.exe"
 
-      - name: Smoke test the console and its relay
+      - name: Smoke the relay (controller.exe standalone)
         shell: pwsh
         run: |
-          function Wait-Status {
+          $p = Start-Process -FilePath "out\app\controller.exe" -ArgumentList "--no-open" -PassThru
+          try {
+            $ok = $false
             foreach ($i in 1..20) {
               Start-Sleep -Seconds 2
               try {
                 $r = Invoke-RestMethod "http://127.0.0.1:8790/api/status" -TimeoutSec 3
-                if ($r) { return $true }
+                if ($r) { $ok = $true; break }
               } catch {}
             }
-            return $false
-          }
-          # 1) the real product path: NonZeroScript.exe must start and bring
-          #    its controller.exe relay up on http://127.0.0.1:8790
-          $app = Start-Process -FilePath "out\app\NonZeroScript.exe" -PassThru
-          try {
-            if (-not (Wait-Status)) { throw "NonZeroScript.exe did not bring up the relay on http://127.0.0.1:8790/api/status" }
-            "smoke OK: NonZeroScript.exe + relay answered /api/status"
-          } finally {
-            Stop-Process -Name NonZeroScript -Force -ErrorAction SilentlyContinue
-            Stop-Process -Name controller -Force -ErrorAction SilentlyContinue
-          }
-          # 2) the relay standalone (how CI verified it before)
-          $p = Start-Process -FilePath "out\app\controller.exe" -ArgumentList "--no-open" -PassThru
-          try {
-            if (-not (Wait-Status)) { throw "controller.exe did not answer on http://127.0.0.1:8790/api/status" }
+            if (-not $ok) {
+              $diag = (Get-ChildItem "out\app" | Select-Object -ExpandProperty Name) -join ","
+              "::error::relay smoke: controller.exe did not answer /api/status; out/app=[$diag]; alive=$(-not $p.HasExited)"
+              exit 1
+            }
             "smoke OK: controller.exe answered /api/status"
           } finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Stop-Process -Name controller -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Smoke the native console (NonZeroScript.exe)
+        shell: pwsh
+        run: |
+          $app = Start-Process -FilePath "out\app\NonZeroScript.exe" -PassThru
+          try {
+            $ok = $false
+            foreach ($i in 1..25) {
+              Start-Sleep -Seconds 2
+              try {
+                $r = Invoke-RestMethod "http://127.0.0.1:8790/api/status" -TimeoutSec 3
+                if ($r) { $ok = $true; break }
+              } catch {}
+            }
+            if (-not $ok) {
+              Start-Sleep -Seconds 1
+              $appAlive = -not $app.HasExited
+              $appCode = if ($appAlive) { "alive" } else { "exit=" + $app.ExitCode }
+              $relayProc = [bool](Get-Process controller -ErrorAction SilentlyContinue)
+              $listening = [bool](Get-NetTCPConnection -LocalPort 8790 -State Listen -ErrorAction SilentlyContinue)
+              $files = (Get-ChildItem "out\app" | Select-Object -ExpandProperty Name) -join ","
+              $data = (Get-ChildItem "out\app\data" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ","
+              "::error::console smoke: no /api/status answer; app=$appCode relayProc=$relayProc listening8790=$listening out/app=[$files] data=[$data]"
+              exit 1
+            }
+            "smoke OK: NonZeroScript.exe brought up the relay and /api/status answered"
+          } finally {
+            Stop-Process -Name NonZeroScript -Force -ErrorAction SilentlyContinue
             Stop-Process -Name controller -Force -ErrorAction SilentlyContinue
             Remove-Item -Recurse -Force "out\app\data" -ErrorAction SilentlyContinue
           }
 
       - name: Write run summary
+        if: always()
         shell: pwsh
         run: |
           @(
@@ -136,6 +158,7 @@ jobs:
           ) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Upload NonZeroScript
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: NonZeroScript
@@ -144,6 +167,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload extension
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: extension
@@ -152,6 +176,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload editor-godot-4.7.2
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: editor-godot-4.7.2
