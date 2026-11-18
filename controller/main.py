@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""NonZeroScript controller - visual console + local relay.
+"""NonZeroScript controller - local relay + console server.
 
-Shipped as controller.exe (PyInstaller one-file, Windows 10/11 64-bit) -
-double-click it and the console opens at 127.0.0.1:8790. From source:
+Shipped as controller.exe (PyInstaller one-file, Windows 10/11 64-bit): the
+relay that runs beside the native console (NonZeroScript.exe, Tauri 2), which
+starts it with --no-open and shows the UI itself. From source:
 
-    python main.py                 # 127.0.0.1:8790, opens the console
+    python main.py                 # 127.0.0.1:8790, opens the console page
     python main.py --host 0.0.0.0  # only for a sandbox/remote demo
     python main.py --port 9000 --no-open
 
@@ -94,7 +95,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     hub = Hub(settings, data_dir)
-    server = create_server(hub, BASE / "ui", host, port)
+    ui_dir = BASE / "ui"
+    if not (ui_dir / "index.html").exists():
+        # Source checkout: the console UI lives in console/ui. It is embedded
+        # into NonZeroScript.exe by Tauri and kept here for the browser
+        # fallback served by this relay.
+        ui_dir = BASE.parent / "console" / "ui"
+    server = create_server(hub, ui_dir, host, port)
     url = f"http://{'127.0.0.1' if host in ('127.0.0.1', '0.0.0.0') else host}:{port}/"
 
     if settings.get("auto_open_console") and not args.no_open:

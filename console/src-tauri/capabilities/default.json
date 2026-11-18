@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Default capability for the console window: plain webview only, no plugin permissions needed.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

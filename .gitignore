@@ -1,7 +1,8 @@
-# Build output: dist/ is committed on purpose (the repository is the download),
-# but temporary exe/PyInstaller output is not.
+# Build output: temporary exe/PyInstaller/Tauri output is not tracked.
 dist/exe/
 dist/_pyinstaller/
+console/src-tauri/target/
+console/src-tauri/gen/
 
 # Controller runtime data: settings.json + timeline memory (local, private)
 controller/data/

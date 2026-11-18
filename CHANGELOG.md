@@ -2,6 +2,15 @@
 
 版本号固定为 **v0.1.0-dev**（持续开发版），不发布新的版本号；下面按时间倒序记录用户可见的变化。
 
+## 2026-11-15 — 原生操控台 + AI 对话
+
+### 变化
+
+- **控制台不再打开网页**：`NonZeroScript.exe` 是 Tauri 2 原生桌面应用（Rust 窗口 + JavaScript 界面），启动时自动带上同目录的 `controller.exe` 中转，关窗口即停止中转。
+- **下载物 `NonZeroScript`**（原 `controller.exe`）：内含 `NonZeroScript.exe` + `controller.exe` + `LICENSE`，双击 **NonZeroScript.exe** 即用。
+- **AI 对话**：Godot 侧栏新增「AI 对话」面板，消息交给已绑定的 AI 网页会话执行；也可以继续直接在 AI 网页里聊（网页就是“指定的 AI”）。两边共用任务流、记忆和时间线。
+- 编辑器协议新增 `POST /api/editor/chat` 与轮询响应里的 `chat` 事件流（见 `editor/PROTOCOL.md`）。
+
 ## 2026-11-15 — 下载物改成最终形态
 
 ### 变化

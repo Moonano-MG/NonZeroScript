@@ -151,6 +151,11 @@ class Hub:
         self.active_task_id: Optional[str] = None
         self.logs: deque[dict[str, Any]] = deque(maxlen=int(settings.get("log_limit")))
         self.log_seq = 0
+        # Conversation transcript shared by every chat surface: the editor
+        # dock and the console. Events are seq-ordered; each editor polls the
+        # ones it has not seen yet (editor_poll -> "chat").
+        self.chat_seq = 0
+        self.chat_events: deque[dict[str, Any]] = deque(maxlen=2000)
         self._stop = False
         # Editor instructions: each editor adapter (editor/<name>/adapter.json)
         # registers its command catalogue and prompt text with the controller
@@ -273,6 +278,30 @@ class Hub:
             args = ", ".join(k + ("" if (p or {}).get("required") else "?") for k, p in params.items())
             lines.append(f"{t['name']}({args}) - {(t.get('description') or '').splitlines()[0]}")
         return "\n".join(lines)
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  CHAT (the shared AI conversation: editor dock + console)
+    # ══════════════════════════════════════════════════════════════════════
+    def _chat_event(self, kind: str, text: str) -> None:
+        """Record one conversation line. Callers may hold the lock (RLock)."""
+        with self.lock:
+            self.chat_seq += 1
+            self.chat_events.append({"seq": self.chat_seq, "ts": iso(), "kind": kind, "text": text})
+
+    def chat_since(self, since: int, limit: int = 40) -> list[dict[str, Any]]:
+        with self.lock:
+            return [e for e in self.chat_events if e["seq"] > since][-limit:]
+
+    def editor_chat(self, text: str) -> dict[str, Any]:
+        """A message typed in the editor dock: it becomes a task for the bound
+        AI webpage session (the webpage is just the designated AI)."""
+        text = str(text or "").strip()
+        if not text:
+            return {"ok": False, "error": "message is empty"}
+        result = self.add_task(text)
+        if not result.get("ok"):
+            self._chat_event("error", str(result.get("error") or "无法创建任务"))
+        return result
 
     # ══════════════════════════════════════════════════════════════════════
     #  LOGGING
@@ -401,6 +430,7 @@ class Hub:
             },
         )
         self.log("assign", f"回合 {task.turns} → {s.label}", task=task.id, session=s.id, kind=turn.kind)
+        self._chat_event("status", f"回合 {task.turns} → {s.label}")
         return {
             "turnId": turn.id,
             "taskId": task.id,
@@ -458,6 +488,8 @@ class Hub:
             }
             self.memory.append_task(task.id, mem)
             self.memory.append_session(s, mem)
+            if reply.strip():
+                self._chat_event("ai", reply[:800])
 
         exec_info = None
         cmd_name = ""
@@ -492,6 +524,8 @@ class Hub:
                         "preview": str(exec_info.get("preview") or "")[:500],
                     },
                 )
+                mark = "✓" if exec_info.get("ok") else "✗"
+                self._chat_event("tool", f"{mark} {cmd_name} {(exec_info.get('preview') or '')[:120]}")
 
         with self.lock:
             # Keep the reporting tab in "finishing" until its next poll says
@@ -547,6 +581,7 @@ class Hub:
                     )
                 next_prompt = feedback
                 self.memory.append_task(task.id, {"kind": "note", "text": f"repair requested: {parse_error}", "state": "repair"})
+                self._chat_event("status", f"修复请求：{parse_error}")
             else:
                 next_prompt = "Continue."
 
@@ -624,6 +659,7 @@ class Hub:
             self.task_order.append(task.id)
             self.memory.append_task(task.id, {"kind": "task", "text": prompt, "provider": task.provider, "state": "queued"})
             self.log("task", f"新任务：{prompt[:70]}", task=task.id, provider=task.provider or "any")
+            self._chat_event("user", prompt[:600])
             self._dispatch_locked()
             return {"ok": True, "task": self._task_dict_locked(task)}
 
@@ -644,6 +680,7 @@ class Hub:
                     self.memory.append_task(t.id, {"kind": "note", "text": "stopped by console", "state": "stopped"})
             self.active_task_id = None
             self.log("warn", "已停止全部任务与会话")
+            self._chat_event("status", "已停止全部任务与会话")
             return {"ok": True}
 
     def pause_task(self, task_id: str = "") -> dict[str, Any]:
@@ -741,6 +778,12 @@ class Hub:
     def _finish_task_locked(self, task: Task, state: str) -> None:
         task.state = state
         task.finished_at = now()
+        if state == "done":
+            self._chat_event("status", "任务完成")
+        elif state == "error":
+            self._chat_event("error", str(task.error or "任务失败")[:300])
+        else:
+            self._chat_event("status", f"任务{state}：{str(task.error or '')[:120]}")
         if self.active_task_id == task.id:
             self.active_task_id = None
         self._prune_tasks_locked()
@@ -838,10 +881,15 @@ class Hub:
             cmds = [{"id": x.id, "command": x.command, "params": x.params} for x in ed.queue[:24]]
             if cmds:
                 ed.queue = ed.queue[24:]
+            try:
+                chat_since = int(p.get("chatSeq") or 0)
+            except (TypeError, ValueError):
+                chat_since = 0
             return {
                 "ok": True,
                 "commands": cmds,
                 "queue": len(ed.queue),
+                "chat": self.chat_since(chat_since),
                 "adapter_ok": bool(self._adapters.get(ed.adapter)),
                 "need_adapter": not bool(self._adapters.get(ed.adapter)),
                 "settings": {

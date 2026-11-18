@@ -2,7 +2,7 @@ name: 构建 Build
 
 # 每次运行都产出下载物（run 页面底部 Artifacts），GitHub 会自动把每个
 # artifact 打包成 zip 供下载：
-#   controller.exe         单文件 Windows 程序（PyInstaller，双击即用）
+#   NonZeroScript          原生控制台（Tauri 2：NonZeroScript.exe + controller.exe + LICENSE）
 #   extension              Chrome / Edge 插件文件夹（直接"加载已解压"）
 #   editor-godot-4.7.2     Godot 插件 addons/nonzeroscript（标准 GDScript）
 # 仓库里不再放 zip；手动运行：Actions -> 构建 Build -> Run workflow
@@ -37,7 +37,7 @@ jobs:
       - name: JavaScript syntax
         run: |
           fail=0
-          for f in extension/*.js extension/core/*.js extension/providers/*.js controller/ui/app.js; do
+          for f in extension/*.js extension/core/*.js extension/providers/*.js console/ui/app.js; do
             node --check "$f" || fail=1
           done
           exit $fail
@@ -47,7 +47,8 @@ jobs:
           python -m pip install --quiet gdtoolkit
           gdparse editor/godot-4.7.2/plugin.gd \
                   editor/godot-4.7.2/core/bridge.gd \
-                  editor/godot-4.7.2/core/commands.gd
+                  editor/godot-4.7.2/core/commands.gd \
+                  editor/godot-4.7.2/ui/dock.gd
 
   build:
     name: Build (Windows 64-bit)
@@ -61,6 +62,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Rust toolchain
+        shell: pwsh
+        run: rustc --version
+
       - name: Stage extension/ and addons/
         run: python .github/build.py --out out
 
@@ -68,25 +78,48 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --quiet pyinstaller
-          pyinstaller --noconfirm --clean --onefile --name controller --paths controller --hidden-import hub --hidden-import server --hidden-import settings --hidden-import memory --hidden-import metrics --hidden-import version --add-data "controller/ui;ui" --distpath out/controller --workpath "$env:RUNNER_TEMP/pyi" controller/main.py
+          pyinstaller --noconfirm --clean --onefile --noconsole --name controller --paths controller --hidden-import hub --hidden-import server --hidden-import settings --hidden-import memory --hidden-import metrics --hidden-import version --add-data "console/ui;ui" --distpath out/app --workpath "$env:RUNNER_TEMP/pyi" controller/main.py
 
-      - name: Smoke test controller.exe
+      - name: Build NonZeroScript.exe (Tauri 2 console)
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "out\controller\controller.exe" -ArgumentList "--no-open" -PassThru
-          try {
-            $ok = $false
-            foreach ($i in 1..15) {
+          cd console
+          npm install --no-audit --no-fund
+          npx tauri build
+          Copy-Item "src-tauri\target\release\nonzeroscript-console.exe" "..\out\app\NonZeroScript.exe"
+
+      - name: Smoke test the console and its relay
+        shell: pwsh
+        run: |
+          function Wait-Status {
+            foreach ($i in 1..20) {
               Start-Sleep -Seconds 2
               try {
                 $r = Invoke-RestMethod "http://127.0.0.1:8790/api/status" -TimeoutSec 3
-                if ($r) { $ok = $true; break }
+                if ($r) { return $true }
               } catch {}
             }
-            if (-not $ok) { throw "controller.exe did not answer on http://127.0.0.1:8790/api/status" }
+            return $false
+          }
+          # 1) the real product path: NonZeroScript.exe must start and bring
+          #    its controller.exe relay up on http://127.0.0.1:8790
+          $app = Start-Process -FilePath "out\app\NonZeroScript.exe" -PassThru
+          try {
+            if (-not (Wait-Status)) { throw "NonZeroScript.exe did not bring up the relay on http://127.0.0.1:8790/api/status" }
+            "smoke OK: NonZeroScript.exe + relay answered /api/status"
+          } finally {
+            Stop-Process -Name NonZeroScript -Force -ErrorAction SilentlyContinue
+            Stop-Process -Name controller -Force -ErrorAction SilentlyContinue
+          }
+          # 2) the relay standalone (how CI verified it before)
+          $p = Start-Process -FilePath "out\app\controller.exe" -ArgumentList "--no-open" -PassThru
+          try {
+            if (-not (Wait-Status)) { throw "controller.exe did not answer on http://127.0.0.1:8790/api/status" }
             "smoke OK: controller.exe answered /api/status"
           } finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Stop-Process -Name controller -Force -ErrorAction SilentlyContinue
+            Remove-Item -Recurse -Force "out\app\data" -ErrorAction SilentlyContinue
           }
 
       - name: Write run summary
@@ -97,16 +130,16 @@ jobs:
             "",
             "本页底部 **Artifacts**（点名字单独下载，GitHub 已自动打包为 zip）：",
             "",
-            "- ``controller.exe`` — 单文件控制器，双击即用",
+            "- ``NonZeroScript`` — 原生控制台（内含 ``NonZeroScript.exe`` + ``controller.exe`` + LICENSE）",
             "- ``extension`` — Chrome / Edge 插件文件夹（内含 ``extension/``）",
             "- ``editor-godot-4.7.2`` — Godot 插件（内含 ``addons/nonzeroscript/``）"
           ) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
-      - name: Upload controller.exe
+      - name: Upload NonZeroScript
         uses: actions/upload-artifact@v7
         with:
-          name: controller.exe
-          path: out/controller
+          name: NonZeroScript
+          path: out/app
           compression-level: 0
           if-no-files-found: error
 
