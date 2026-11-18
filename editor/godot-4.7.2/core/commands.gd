@@ -243,7 +243,11 @@ func _protected(path: String) -> bool:
 		return true
 	if p == "res://.git" or p.begins_with("res://.git/"):
 		return true
-	if p == "res://addons/nonzeroscript" or p.begins_with("res://addons/nonzeroscript/"):
+	# Protect the addon itself wherever it is installed (normally
+	# res://addons/nonzeroscript, but a nested folder must be protected too).
+	var script := get_script() as Script
+	var addon := script.resource_path.get_base_dir().get_base_dir().to_lower().trim_suffix("/")
+	if not addon.is_empty() and (p == addon or p.begins_with(addon + "/")):
 		return true
 	return false
 

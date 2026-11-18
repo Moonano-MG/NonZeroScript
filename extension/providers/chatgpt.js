@@ -930,6 +930,15 @@ const ZSProvider = (() => {
     // placed inside it. Anchor chips at the turn-element level (the stable
     // data-message-author-role div), where they survive those re-renders.
     chipAtItemLevel: true,
+    // Site-native tool/agent cards ("Using Agent…", tool call rows): hidden by
+    // the camouflage sweep and represented with one custom-icon chip, so the
+    // timeline shows what the AI says, not how its tools ran. Tight selectors
+    // only - anything unmatched is left visible rather than risk hiding prose.
+    siteToolSel:
+      "[data-testid^='tool-'],[data-testid*='tool_call'],[data-testid*='tool-call']," +
+      "[data-message-tool-calls],div[class*='tool-call'],div[class*='toolCall']," +
+      "div[class*='agent-card'],div[class*='agentCard']," +
+      "div[class*='AgentCard'],section[class*='tool-call']",
     // ChatGPT's turn elements are semantic (data-message-author-role) and carry
     // a stable id, so the core's "has THIS send produced its reply turn yet?"
     // gate is trustworthy here - it keys off lastAssistantId, which survives the

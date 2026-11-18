@@ -129,7 +129,7 @@ func _build() -> void:
 	_chat_input = LineEdit.new()
 	_chat_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_chat_input.placeholder_text = "给 AI 发消息…"
-	_chat_input.text_submitted.connect(func(_t): _on_chat_send())
+	_chat_input.text_submitted.connect(_on_chat_submitted)
 	chat_row.add_child(_chat_input)
 	var send := Button.new()
 	send.text = "发送"
@@ -201,6 +201,10 @@ func on_chat_event(ev: Dictionary) -> void:
 	var text := str(ev.get("text", "")).strip_edges()
 	if text.is_empty():
 		return
+	# Protocol internals (command JSON, code blocks the AI wrote for Non) are
+	# folded into one compact icon line - the command itself already ran and is
+	# visible in 命令记录, so the transcript stays readable.
+	text = _fold_protocol(text)
 	var line := ""
 	match kind:
 		"user":
@@ -208,12 +212,39 @@ func on_chat_event(ev: Dictionary) -> void:
 		"ai":
 			line = "[color=#9fe6a0]AI：[/color]" + text
 		"tool":
-			line = "[color=#c9a0ff]⚙ [/color]" + text
+			line = "[color=#c9a0ff]⚙ " + text + "[/color]"
 		"error":
 			line = "[color=#ff8b8b]✗ " + text + "[/color]"
 		_:
 			line = "[color=#8a8f9c]· " + text + "[/color]"
 	_chat.append_text(line + "\n")
+
+
+func _fold_protocol(text: String) -> String:
+	# Collapse anything that is wire protocol for Non - a JSON command envelope
+	# or a ###LANG### code block - into one visible placeholder.
+	var out := text
+	var json_at := out.find("{\"command\"")
+	if json_at == -1:
+		json_at = out.find("{ \"command\"")
+	if json_at == -1:
+		json_at = out.find("{\"toolName\"")
+	if json_at >= 0:
+		var prose := out.substr(0, json_at).strip_edges()
+		out = (prose + " " if not prose.is_empty() else "") + "[命令已折叠 · 见命令记录]"
+	var code_re := RegEx.new()
+	code_re.compile("###[A-Z][A-Z0-9_]*###")
+	var code_m := code_re.search(out)
+	if code_m != null:
+		var prose2 := out.substr(0, code_m.get_start()).strip_edges()
+		out = (prose2 + " " if not prose2.is_empty() else "") + "[代码块已折叠 · 见命令记录]"
+	if out.length() > 500:
+		out = out.substr(0, 500) + "…"
+	return out
+
+
+func _on_chat_submitted(_text: String) -> void:
+	_on_chat_send()
 
 
 func _on_chat_send() -> void:

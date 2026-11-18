@@ -231,7 +231,20 @@ class Handler(BaseHTTPRequestHandler):
         p = self._body() if method == "POST" else {}
 
         if path == "/api/status":
-            return self._json(hub.status())
+            body = hub.status()
+            # Chat delta for the console chat panel: the client sends the last
+            # seq it rendered (chatSeq) and gets only newer events.
+            try:
+                chat_seq = int(p.get("chatSeq") or 0)
+            except (TypeError, ValueError):
+                chat_seq = 0
+            events = hub.chat_since(chat_seq)
+            body["chat"] = events
+            # Always the controller's CURRENT global seq: a value below the
+            # client's tells it the relay restarted and its transcript must be
+            # re-primed from zero.
+            body["chatSeq"] = hub.chat_seq
+            return self._json(body)
 
         if path == "/api/tools":
             info = hub.adapter_info()

@@ -208,38 +208,131 @@
 #zs-toast.err { border-color: rgba(248, 113, 113, 0.5); color: #fecaca; }
 #zs-toast.ok { border-color: rgba(52, 211, 153, 0.45); color: #a7f3d0; }
 
-/* ── chips (one per executed command) ───────────────────────────────────── */
-.zs-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin: 6px 0;
-  padding: 4px 9px;
-  border-radius: 8px;
-  background: rgba(129, 140, 248, 0.10);
-  border: 1px solid rgba(129, 140, 248, 0.22);
-  color: rgba(233, 233, 238, 0.82);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.25;
-  user-select: none;
-}
-
-.zs-chip-head { display: inline-flex; align-items: center; gap: 5px; }
-.zs-chip-ic { color: var(--nzs-accent); font-size: 12px; }
-.zs-chip-tx { font-weight: 600; }
-.zs-chip-dt { color: rgba(233, 233, 238, 0.5); }
-.zs-chip-dt:empty { display: none; }
-
-.zs-chip-done { background: rgba(52, 211, 153, 0.09); border-color: rgba(52, 211, 153, 0.25); }
-.zs-chip-done .zs-chip-ic { color: var(--nzs-green); }
-.zs-chip-err { background: rgba(248, 113, 113, 0.10); border-color: rgba(248, 113, 113, 0.28); }
-.zs-chip-err .zs-chip-ic { color: var(--nzs-red); }
-.zs-chip-run { background: rgba(251, 191, 36, 0.08); border-color: rgba(251, 191, 36, 0.22); }
-.zs-chip-run .zs-chip-ic { color: var(--nzs-amber); animation: zs-pulse 1.1s ease-in-out infinite; }
+/* ── camouflage: hide protocol, represent it with chips ──────────────────── */
+/* Whole injected turns (system prompt / task / tool result / repair): hide
+   everything except the chip that stands for them. */
+.zs-hidden > *:not(.zs-chip) { display: none !important; }
 
 /* Providers call this to hide the raw command block behind the chip. */
 .zs-tool-hide { display: none !important; }
+
+/* The markdown container keeps its identity across the site's re-renders (the
+   per-element hide classes get wiped), so it carries the mask too. */
+.markdown.zs-cmd-mask pre { display: none !important; }
+.markdown.zs-cmd-mask-all > *:not(.zs-chip) { display: none !important; }
+
+/* Chips read as one calm family: a neutral surface for every tool. Only STATE
+   carries a tint - a muted green tick when done, red when it errored. */
+.zs-chip {
+  --cat: #8b8b93;
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  align-self: flex-start;
+  margin: 5px 0;
+  padding: 0;
+  font-size: 13px;
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+  border-radius: 9px;
+  line-height: 1.3;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: #d7d7dc;
+  overflow: hidden;
+  user-select: none;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.zs-chip:hover { background: rgba(255, 255, 255, 0.06); }
+
+.zs-chip-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 13px;
+}
+.zs-chip-ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--cat);
+}
+.zs-chip-ic svg { width: 16px; height: 16px; }
+.zs-chip-tx { font-weight: 600; letter-spacing: 0.1px; }
+.zs-chip-dt {
+  opacity: 0.6;
+  font-size: 11px;
+  margin-left: 2px;
+  flex: 1;
+  font-family: ui-monospace, "Cascadia Code", "Cascadia Mono", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zs-chip-dt:empty { display: none; }
+.zs-chip-cv {
+  display: inline-flex;
+  flex: none;
+  opacity: 0.45;
+  transition: transform 0.2s ease;
+}
+.zs-chip-cv svg { width: 15px; height: 15px; }
+.zs-chip.open .zs-chip-cv { transform: rotate(180deg); }
+
+/* expandable body: the raw protocol text, only when asked for */
+.zs-chip-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.22s ease;
+  border-top: 1px solid transparent;
+}
+.zs-chip.open .zs-chip-body {
+  max-height: 460px;
+  overflow: auto;
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+.zs-chip-body pre {
+  margin: 0;
+  padding: 10px 13px;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cdd2e0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* state themes */
+.zs-chip.done   { --cat: #5cbf9a; }
+.zs-chip.err    { --cat: #ef6b6b; border-color: rgba(239, 68, 68, 0.38); color: #f0b8b8; }
+.zs-chip.result { --cat: #8b8b93; color: #a8a8b0; }
+.zs-chip.sys    { --cat: #8b8b93; color: #a8a8b0; }
+.zs-chip.task   { --cat: #818cf8; }
+.zs-chip.idle   { --cat: #8b8b93; color: #a8a8b0; }
+
+/* running shimmer, seamless */
+.zs-chip.run {
+  background-color: rgba(255, 255, 255, 0.05);
+  background-image: linear-gradient(90deg,
+    transparent 0%, rgba(255, 255, 255, 0.09) 50%, transparent 100%);
+  background-repeat: repeat;
+  background-size: 210px 100%;
+  animation: zs-shimmer 1.6s linear infinite;
+}
+@keyframes zs-shimmer { from { background-position: 0 0; } to { background-position: 210px 0; } }
+
+.zs-spin {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--cat);
+  animation: zs-rot 0.9s linear infinite;
+}
+@keyframes zs-rot { to { transform: rotate(360deg); } }
 
 /* Light pages: keep the bar readable. */
 @media (prefers-color-scheme: light) {
