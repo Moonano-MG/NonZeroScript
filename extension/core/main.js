@@ -34,6 +34,14 @@
   // ════════════════════════════════════════════════════════════════════════
   //  STATE
   // ════════════════════════════════════════════════════════════════════════
+  // Camouflage bookkeeping (see the CAMOUFLAGE section): what we typed into the
+  // page, and the optimistic pre-hide window for the turn it creates.
+  const A = {
+    injectHideUntil: 0,
+    injectPreUser: 0,
+    injectedTexts: [],
+    chipped: new WeakMap(), // item -> { label, detail, body, category, phase, whole }
+  };
   const state = {
     sessionId: null,
     browserId: "unknown",
@@ -480,7 +488,7 @@
       if (state.abort) return;
 
       const base = markTurnStart();
-      await P.typeAndSend(prompt);
+      await typeAndSendInjected(prompt);
       state.sessionState = "busy";
       ui.set({ tone: "busy", dot: "busy", text: `${P.displayName} 正在阅读系统提示…`, extra: "启动会话" });
       const res = await waitForReply(base, "start");
@@ -491,7 +499,7 @@
         const wait2 = ZS.randomDelay(state.settings.min_delay, state.settings.max_delay);
         if (!(await countdown(wait2, "等待发送启动纠正"))) return;
         const base2 = markTurnStart();
-        await P.typeAndSend(
+        await typeAndSendInjected(
           "Do not run any command during startup. Reply with plain text: READY. " +
             "Wait for the first task; the controller will send it."
         );
@@ -585,7 +593,7 @@
       if (!okWait || state.abort) return await finishAborted(assign);
 
       const base = markTurnStart();
-      await P.typeAndSend(assign.text);
+      await typeAndSendInjected(assign.text);
       ui.set({ tone: "busy", dot: "busy", text: `${P.displayName} 正在思考…`, extra: `任务 ${state.taskId} · 回合 ${state.turns}` });
 
       const res = await waitForReply(base, assign.turnId);
@@ -807,50 +815,348 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  //  CHIPS (small in-conversation status pill)
+  //  CAMOUFLAGE (hide the protocol, show custom-icon chips - ZeroScript style)
+  //
+  //  The conversation must not show wire protocol: the prompts Non sends (the
+  //  system prompt, task dispatches, tool results, repair notes) and the raw
+  //  command blocks the model writes for Non. Injected turns are hidden whole
+  //  and represented by a small expandable chip with a custom icon; command
+  //  blocks inside an assistant turn are hidden by the provider
+  //  (findToolBlockSpot -> .zs-tool-hide) and represented by a tool chip.
+  //  Site-native tool/agent cards are hidden the same way (P.siteToolSel).
   // ════════════════════════════════════════════════════════════════════════
-  function showChip(item, tool, kind, detail) {
-    if (!item) return null;
+  function normText(t) {
+    return String(t || "").replace(/\s+/g, " ").trim().slice(0, 240);
+  }
+
+  // What kind of injected turn this is (null = leave visible). Checked BEFORE
+  // the tracked-text list so a repair note that quotes a {"command": …} example
+  // is read as protocol, not as a task.
+  function injectedKind(txt) {
+    const t = String(txt || "").replace(/^\s+/, "");
+    if (!t) return null;
+    if (t.includes(ZS.SYS_MARKER)) return "sys";
+    if (t.includes(ZS.RESEND_MARKER)) return "remind";
+    if (/^Output of '[^']*'[:：]/.test(t)) return "result";
+    if (/^ERROR\b/.test(t)) return "repair";
+    if (/^\(System note:/.test(t)) return "repair";
+    if (/^Continue\.$/.test(t)) return "continue";
+    if (/^Do not run any command during startup\./.test(t)) return "startup";
+    if (/^Task finished\.$/.test(t)) return "result";
+    const n = normText(t);
+    if (A.injectedTexts.some((x) => normText(x) === n)) return "task";
+    return null;
+  }
+
+  const INJECTED_CHIP = {
+    sys: ["系统提示", "gear"],
+    remind: ["系统提示重述", "remind"],
+    result: ["工具结果", "result"],
+    repair: ["修复反馈", "error"],
+    continue: ["继续", "result"],
+    startup: ["启动提示", "gear"],
+    task: ["任务", "task"],
+  };
+
+  // Every text Non typed into the page goes through here: remembered for the
+  // camouflage sweep, with an optimistic pre-hide window so the raw turn never
+  // paints before the sweep can mask it.
+  function typeAndSendInjected(text) {
+    A.injectedTexts.push(String(text || ""));
+    if (A.injectedTexts.length > 60) A.injectedTexts.shift();
     try {
-      const chip = document.createElement("div");
-      chip.className = `zs-chip zs-chip-${kind}`;
+      A.injectPreUser = P.userCount ? P.userCount() : 0;
+    } catch {
+      A.injectPreUser = 0;
+    }
+    A.injectHideUntil = Date.now() + 8000;
+    return Promise.resolve(P.typeAndSend(text)).then((r) => {
+      // The send completes asynchronously on some sites - keep the window open.
+      A.injectHideUntil = Math.max(A.injectHideUntil, Date.now() + 2500);
+      return r;
+    });
+  }
+
+  const SVG = (p) =>
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+  const ICONS = {
+    read: SVG('<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>'),
+    edit: SVG('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>'),
+    scene: SVG('<path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/>'),
+    run: SVG('<polygon points="6 3 20 12 6 21 6 3"/>'),
+    tool: SVG('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2-2z"/>'),
+    result: SVG('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+    task: SVG('<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'),
+    check: SVG('<polyline points="20 6 9 17 4 12"/>'),
+    remind: SVG('<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>'),
+    error: SVG('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+    gear: SVG('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 11 4.6h.09A1.65 1.65 0 0 0 12 3.09 2 2 0 0 1 16 3v.09A1.65 1.65 0 0 0 19.4 6l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V15a2 2 0 0 1-2 2z"/>'),
+    agent: SVG('<rect x="4" y="8" width="16" height="12" rx="3"/><circle cx="9" cy="14" r="1.4"/><circle cx="15" cy="14" r="1.4"/><line x1="12" y1="8" x2="12" y2="4"/><circle cx="12" cy="3" r="1.2"/>'),
+  };
+  const SPIN = '<span class="zs-spin"></span>';
+
+  function iconFor(name, phase) {
+    if (phase === "run") return SPIN;
+    if (phase === "err") return ICONS.error;
+    if (phase === "done") return ICONS.check;
+    return ICONS[name] || ICONS.tool;
+  }
+
+  // Chip = the custom pattern that REPLACES hidden protocol content: an icon,
+  // a label, an optional detail line, and a click-to-expand raw body.
+  function decorateChip(item, opts) {
+    const { label, detail = "", body = "", category = "tool", phase = "done", whole = false } = opts;
+    let chip = item.querySelector(".zs-chip");
+    const hasBody = !!body;
+    const sig = `${phase}|${whole ? 1 : 0}|${label}|${detail}|${hasBody ? body.length : 0}`;
+    if (!chip) {
+      chip = document.createElement("div");
+      chip.__zsItem = item;
+    }
+    if (chip.dataset.csig !== sig) {
+      chip.dataset.csig = sig;
+      chip.dataset.cat = category;
+      chip.className = `zs-chip ${phase}`;
       chip.innerHTML =
-        `<span class="zs-chip-head"><span class="zs-chip-ic">${iconFor(tool)}</span>` +
-        `<span class="zs-chip-tx">${escapeHtml(tool || "NonZeroScript")}</span></span>` +
-        `<span class="zs-chip-dt">${escapeHtml(detail || "")}</span>`;
+        `<div class="zs-chip-head">` +
+        `<span class="zs-chip-ic">${iconFor(category, phase)}</span>` +
+        `<span class="zs-chip-tx"></span>` +
+        `<span class="zs-chip-dt"></span>` +
+        (hasBody
+          ? `<span class="zs-chip-cv">${SVG('<polyline points="6 9 12 15 18 9"/>')}</span>`
+          : "") +
+        `</div>` +
+        (hasBody ? `<div class="zs-chip-body"><pre></pre></div>` : "");
+      chip.querySelector(".zs-chip-tx").textContent = label;
+      if (detail) chip.querySelector(".zs-chip-dt").textContent = detail;
+      if (hasBody) {
+        chip.querySelector(".zs-chip-body pre").textContent = body;
+        const head = chip.querySelector(".zs-chip-head");
+        head.style.cursor = "pointer";
+        head.onclick = () => chip.classList.toggle("open");
+      }
+    }
+    if (P.chipAtItemLevel || whole) {
+      // Pin at the turn root: stable across the site's content re-renders.
+      if (chip.parentElement !== item) item.insertBefore(chip, item.firstChild);
+    } else {
+      // Otherwise the provider names the spot where it hid the raw block.
       let spot = null;
       try {
         spot = P.findToolBlockSpot ? P.findToolBlockSpot(item, chip) : null;
       } catch {}
       if (spot && spot.parent) {
-        spot.parent.insertBefore(chip, spot.ref || null);
-      } else {
-        item.appendChild(chip);
+        if (chip.parentElement !== spot.parent || chip.nextElementSibling !== spot.ref) {
+          spot.parent.insertBefore(chip, spot.ref || null);
+        }
+      } else if (chip.parentElement !== item) {
+        item.insertBefore(chip, item.firstChild);
       }
-      return chip;
-    } catch (e) {
-      log("chip failed", e);
-      return null;
     }
+    if (whole) item.classList.add("zs-hidden");
+    A.chipped.set(item, { ...opts });
+    return chip;
+  }
+
+  // Strip every trace of decoration from a node (sites recycle turn nodes).
+  function resetDecoration(item) {
+    const chip = item.querySelector(".zs-chip");
+    if (chip) chip.remove();
+    item.classList.remove("zs-hidden");
+    item.querySelectorAll(".zs-tool-hide").forEach((e) => e.classList.remove("zs-tool-hide"));
+    item.querySelectorAll(".zs-cmd-mask").forEach((e) => e.classList.remove("zs-cmd-mask"));
+    item.querySelectorAll(".zs-cmd-mask-all").forEach((e) => e.classList.remove("zs-cmd-mask-all"));
+    delete item.__zsFor;
+    A.chipped.delete(item);
+  }
+
+  function itemVisibleText(item) {
+    try {
+      return P.classifyText ? P.classifyText(item, ".zs-chip") : P.itemText ? P.itemText(item) : item.textContent || "";
+    } catch {
+      return item.textContent || "";
+    }
+  }
+
+  function chipForInjected(item, kind, txt) {
+    const [label, icon] = INJECTED_CHIP[kind] || ["消息", "tool"];
+    const m = /^Output of '([^']+)'/.exec(String(txt || "").trim());
+    const detail = m ? m[1] : kind === "task" ? String(txt || "").trim().slice(0, 60) : "";
+    decorateChip(item, {
+      label,
+      detail,
+      body: String(txt || "").slice(0, 4000),
+      category: icon,
+      phase: kind === "repair" ? "err" : kind === "task" ? "task" : kind === "result" || kind === "continue" ? "result" : "sys",
+      whole: true,
+    });
+    item.__zsFor = normText(txt);
+  }
+
+  function chipForCommand(item, txt, agentOnly) {
+    const saved = A.chipped.get(item);
+    const tool = agentOnly ? "Agent" : ZSParse.toolNameFromText(txt || "");
+    const label = tool || "命令";
+    if (saved && saved.label === label && !saved.whole) {
+      // Rebuild only if the site wiped the DOM chip.
+      if (!item.querySelector(".zs-chip")) {
+        decorateChip(item, saved);
+      }
+      return;
+    }
+    decorateChip(item, {
+      label,
+      detail: "",
+      body: "",
+      category: agentOnly ? "agent" : ZS.toolCategory(tool || "tool"),
+      // State from the block itself: an OPEN tool block is still streaming.
+      // The turn loop (showChip/updateChip) owns the phase afterwards.
+      phase: saved && saved.phase ? saved.phase : ZSParse.hasOpenToolBlock(txt || "") ? "run" : "done",
+      whole: false,
+    });
+  }
+
+  function sweepItem(item) {
+    const isUser = P.isUserItem(item);
+    const txt = itemVisibleText(item);
+    const kind = isUser ? injectedKind(txt) : null;
+    if (kind) {
+      if (item.__zsFor === normText(txt) && item.querySelector(".zs-chip")) {
+        item.classList.add("zs-hidden");
+        return;
+      }
+      chipForInjected(item, kind, txt);
+      return;
+    }
+    if (item.classList.contains("zs-hidden") && !item.__zsFor && txt.trim()) {
+      // Optimistic pre-hide of a turn that turned out NOT to be ours.
+      item.classList.remove("zs-hidden");
+    }
+    if (item.__zsFor && item.__zsFor !== normText(txt)) {
+      resetDecoration(item); // recycled node
+    }
+    if (isUser) return;
+
+    // Assistant turn: hide command blocks and site tool/agent cards, then
+    // represent them with one chip.
+    let hidAny = false;
+    try {
+      hidAny = !!P.findToolBlockSpot && !!P.findToolBlockSpot(item, null);
+    } catch {}
+    if (!hidAny) {
+      // Provider without range hiding: mask obvious command blocks only.
+      for (const pre of item.querySelectorAll("pre")) {
+        if (pre.closest(".zs-chip")) continue;
+        if (ZSParse.hasCommandShape(pre.textContent || "")) {
+          pre.classList.add("zs-tool-hide");
+          hidAny = true;
+        }
+      }
+    }
+    let agentCards = 0;
+    const sel = P.siteToolSel || "";
+    if (sel) {
+      for (const el of item.querySelectorAll(sel)) {
+        if (el.closest(".zs-chip")) continue;
+        el.classList.add("zs-tool-hide");
+        agentCards++;
+      }
+    }
+    const already = !!item.querySelector(".zs-tool-hide");
+    if (hidAny || agentCards || already) {
+      chipForCommand(item, txt, !hidAny && agentCards > 0);
+    }
+  }
+
+  function sweep() {
+    const items = P.allItems ? P.allItems() : [];
+    for (const item of items) {
+      try {
+        sweepItem(item);
+      } catch (e) {
+        log("sweep", e);
+      }
+    }
+  }
+
+  let sweepQueued = false;
+  function scheduleSweep() {
+    if (sweepQueued) return;
+    sweepQueued = true;
+    requestAnimationFrame(() => {
+      sweepQueued = false;
+      sweep();
+    });
+  }
+
+  // Synchronous pre-hide: the raw text of a freshly injected turn must not
+  // paint for even one frame before the sweep builds its chip.
+  function preHideWholeItems() {
+    const items = P.allItems ? P.allItems() : [];
+    if (A.injectHideUntil && Date.now() < A.injectHideUntil) {
+      const users = items.filter((it) => P.isUserItem(it));
+      const last = users[users.length - 1];
+      if (
+        last &&
+        !last.classList.contains("zs-hidden") &&
+        users.length > (A.injectPreUser || 0)
+      ) {
+        last.classList.add("zs-hidden");
+        A.injectHideUntil = 0; // one-shot: this turn is now masked
+      }
+    }
+    for (const item of items) {
+      if (item.classList.contains("zs-hidden")) continue;
+      if (!P.isUserItem(item)) continue;
+      const txt = itemVisibleText(item);
+      if (injectedKind(txt)) item.classList.add("zs-hidden");
+    }
+  }
+
+  function camouflageStart() {
+    const mo = new MutationObserver(() => {
+      preHideWholeItems();
+      scheduleSweep();
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+    // Belt-and-braces: a low-frequency sweep regardless of visibility or
+    // mutation timing, so the camouflage always converges.
+    setInterval(scheduleSweep, 1500);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) scheduleSweep();
+    });
+    scheduleSweep();
+  }
+
+  // ── Compatibility wrappers for the turn loop (runAssignment) ─────────────
+  function showChip(item, tool, kind, detail) {
+    if (!item) return null;
+    try {
+      // The provider hides the raw command range on the way (its real job).
+      P.findToolBlockSpot && P.findToolBlockSpot(item, null);
+    } catch {}
+    return decorateChip(item, {
+      label: tool || "NonZeroScript",
+      detail: detail || "",
+      body: "",
+      category: ZS.toolCategory(tool || "tool"),
+      phase: kind === "run" ? "run" : kind === "err" ? "err" : "done",
+      whole: false,
+    });
   }
 
   function updateChip(chip, kind, text) {
     if (!chip) return;
-    chip.className = `zs-chip zs-chip-${kind}`;
+    const phase = kind === "run" ? "run" : kind === "err" ? "err" : "done";
+    const item = chip.__zsItem;
+    const saved = item ? A.chipped.get(item) : null;
+    if (saved) saved.phase = phase;
+    chip.className = `zs-chip ${phase}${chip.classList.contains("open") ? " open" : ""}`;
+    const ic = chip.querySelector(".zs-chip-ic");
+    if (ic) ic.innerHTML = iconFor(chip.dataset.cat || "tool", phase);
     const d = chip.querySelector(".zs-chip-dt");
     if (d) d.textContent = text || "";
-  }
-
-  function iconFor(tool) {
-    const cat = ZS.toolCategory(tool || "");
-    const icons = {
-      read: "◈",
-      edit: "✎",
-      scene: "▣",
-      run: "▶",
-      tool: "◆",
-    };
-    return icons[cat] || "◆";
+    if (chip.dataset.csig) chip.dataset.csig = chip.dataset.csig.replace(/^[^|]*/, phase);
   }
 
   function escapeHtml(s) {
@@ -888,6 +1194,7 @@
     ui.build();
     ui.render();
     P.init && P.init({ diag: (ev, data) => log(ev, data || "") });
+    camouflageStart();
     await ZSNet.init();
     state.browserId = ZSNet.getBrowserId();
     state.browser = ui.detectBrowser();

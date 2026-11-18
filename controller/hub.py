@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import threading
 import time
 import uuid
@@ -288,19 +289,53 @@ class Hub:
             self.chat_seq += 1
             self.chat_events.append({"seq": self.chat_seq, "ts": iso(), "kind": kind, "text": text})
 
+    @staticmethod
+    def _chat_fold(text: str, limit: int = 800) -> str:
+        """Fold protocol internals out of a chat line.
+
+        The conversation surfaces (editor dock and console chat) show what the
+        AI *says*, not the wire protocol: a JSON command envelope or a
+        ###LANG### code block is replaced by one compact marker (the command
+        itself already appears as its own 工具 line when it runs).
+        """
+        s = str(text or "")
+        cut = -1
+        for token in ('{"command"', '{ "command"', '{"toolName"'):
+            i = s.find(token)
+            if i >= 0 and (cut < 0 or i < cut):
+                cut = i
+        m = re.search(r"###[A-Z][A-Z0-9_]*###", s)
+        if m is not None and (cut < 0 or m.start() < cut):
+            cut = m.start()
+        if cut >= 0:
+            prose = s[:cut].strip()
+            tail = "[代码块已折叠]" if (m is not None and cut == m.start()) else "[命令已折叠]"
+            s = (prose + " " if prose else "") + tail
+        s = s.strip()
+        return s[:limit] + ("…" if len(s) > limit else "")
+
     def chat_since(self, since: int, limit: int = 40) -> list[dict[str, Any]]:
         with self.lock:
             return [e for e in self.chat_events if e["seq"] > since][-limit:]
 
     def editor_chat(self, text: str) -> dict[str, Any]:
-        """A message typed in the editor dock: it becomes a task for the bound
-        AI webpage session (the webpage is just the designated AI)."""
+        """A message typed in the editor dock or the console chat: it becomes a
+        task for the bound AI webpage session (the webpage is just the
+        designated AI)."""
         text = str(text or "").strip()
         if not text:
             return {"ok": False, "error": "message is empty"}
         result = self.add_task(text)
         if not result.get("ok"):
             self._chat_event("error", str(result.get("error") or "无法创建任务"))
+        else:
+            with self.lock:
+                ready = sum(1 for s in self.sessions.values() if s.state in ("ready", "assigned", "busy"))
+            if not ready:
+                self._chat_event(
+                    "status",
+                    "消息已排队 · 还没有已启动的浏览器会话：在装了扩展的 AI 页面点击“启动”后会自动开始。",
+                )
         return result
 
     # ══════════════════════════════════════════════════════════════════════
@@ -489,7 +524,7 @@ class Hub:
             self.memory.append_task(task.id, mem)
             self.memory.append_session(s, mem)
             if reply.strip():
-                self._chat_event("ai", reply[:800])
+                self._chat_event("ai", self._chat_fold(reply))
 
         exec_info = None
         cmd_name = ""

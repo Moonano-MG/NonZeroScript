@@ -16,6 +16,8 @@
     busy: false,
     lastRender: {},
     settingsLoaded: false,
+    chatSeq: 0,
+    chatPriming: true,
   };
 
   const esc = (s) =>
@@ -79,6 +81,105 @@
     } finally {
       clearTimeout(t);
     }
+  }
+
+  // ── tabs ────────────────────────────────────────────────────────────────
+  function initTabs() {
+    const buttons = document.querySelectorAll("#tabs button");
+    const show = (name) => {
+      for (const b of buttons) b.classList.toggle("active", b.dataset.tab === name);
+      for (const s of document.querySelectorAll("main > .tab")) {
+        s.classList.toggle("active", s.id === `tab-${name}`);
+      }
+      try {
+        history.replaceState(null, "", `#${name}`);
+      } catch {}
+    };
+    for (const b of buttons) b.addEventListener("click", () => show(b.dataset.tab));
+    const initial = (location.hash || "").replace("#", "");
+    if (initial && document.getElementById(`tab-${initial}`)) show(initial);
+  }
+
+  // ── chat (shared conversation: console / editor dock / bound AI page) ───
+  // Protocol internals (command JSON, ###LANG### code blocks) are folded into a
+  // small marker chip: the conversation shows what the AI says, not the wire
+  // protocol Non and the AI exchange.
+  function foldProtocol(s) {
+    let t = String(s == null ? "" : s);
+    let cut = -1;
+    for (const tok of ['{"command"', '{ "command"', '{"toolName"']) {
+      const i = t.indexOf(tok);
+      if (i >= 0 && (cut < 0 || i < cut)) cut = i;
+    }
+    const m = /###[A-Z][A-Z0-9_]*###/.exec(t);
+    if (m && (cut < 0 || m.index < cut)) cut = m.index;
+    if (cut >= 0) {
+      const prose = t.slice(0, cut).trim();
+      const label = m && cut === m.index ? "代码块已折叠" : "命令已折叠";
+      return { text: prose, fold: label };
+    }
+    return { text: t, fold: "" };
+  }
+
+  function chatLine(e) {
+    const kind = e.kind || "status";
+    const { text, fold } = foldProtocol(e.text || "");
+    const div = document.createElement("div");
+    div.className = `msg ${kind}`;
+    div.textContent = text;
+    if (fold) {
+      const tag = document.createElement("span");
+      tag.className = "fold";
+      tag.textContent = `▣ ${fold}`;
+      div.appendChild(document.createElement("br"));
+      div.appendChild(tag);
+    }
+    return div;
+  }
+
+  function renderChat(st) {
+    const box = $("chat-log");
+    if (!box) return;
+    // The controller's global chat seq went BACKWARDS -> the relay restarted:
+    // re-prime the transcript from zero so new events are not filtered out.
+    if (typeof st.chatSeq === "number" && st.chatSeq < state.chatSeq) {
+      state.chatSeq = 0;
+      state.chatPriming = true;
+    }
+    const events = st.chat || [];
+    if (!events.length) return;
+    if (state.chatPriming) {
+      // First successful poll: show the existing transcript without pinning
+      // the scroll to the bottom of a long history mid-read.
+      state.chatPriming = false;
+      box.innerHTML = "";
+    }
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    let added = 0;
+    for (const e of events) {
+      if (!e || (e.seq != null && e.seq <= state.chatSeq)) continue;
+      if (e.seq != null) state.chatSeq = e.seq;
+      box.appendChild(chatLine(e));
+      added++;
+    }
+    if (!added) return;
+    while (box.children.length > 400) box.removeChild(box.firstChild);
+    if (atBottom || state.chatSeq < 8) box.scrollTop = box.scrollHeight;
+  }
+
+  async function sendChat() {
+    const input = $("chat-input");
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    const r = await api("/api/editor/chat", { text });
+    if (!r || !r.ok) {
+      toast((r && r.error) || "发送失败", "err");
+      input.value = text;
+      return;
+    }
+    toast("已发送", "ok", 2000);
+    refresh();
   }
 
   // ── pills ───────────────────────────────────────────────────────────────
@@ -458,6 +559,7 @@
       renderTasks(st);
       renderSessions(st);
       renderEditor(st);
+      renderChat(st);
       await loadLogs();
       state.tick++;
       if (!state.tools.length) loadTools();
@@ -500,6 +602,14 @@
   }
 
   // ── events ──────────────────────────────────────────────────────────────
+  initTabs();
+  $("chat-send").addEventListener("click", sendChat);
+  $("chat-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChat();
+    }
+  });
   $("add-task").addEventListener("click", addTask);
   $("prompt").addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") addTask();
@@ -544,11 +654,13 @@
   $("open-godot").addEventListener("click", () => {
     alert(
       "在 Godot 中连接 NonZeroScript：\n\n" +
-        "1. 把编辑器包解压出的 addons/nonzeroscript 放进项目根目录\n" +
-        "2. 项目 → 项目设置 → 插件 → 启用 NonZeroScript\n" +
-        "3. 右侧 NonZeroScript 面板确认中转地址为 " +
+        "1. 把编辑器包里的 addons/nonzeroscript 整个文件夹复制到项目根目录下（和 project.godot 同级）\n" +
+        "2. 最终路径必须是 res://addons/nonzeroscript/plugin.cfg\n" +
+        "   （注意：不要把 addons 文件夹再套进项目已有的 addons 里，变成 res://addons/addons/...）\n" +
+        "3. 项目 → 项目设置 → 插件 → 启用 NonZeroScript\n" +
+        "4. 右侧 NonZeroScript 面板确认中转地址为 " +
         (state.status ? `http://127.0.0.1:${state.status.port}` : "http://127.0.0.1:8790") +
-        "\n4. 面板应显示“已连接”，本页 Godot 状态会变绿。"
+        "\n5. 面板应显示“已连接”，本页编辑器状态会变绿。"
     );
   });
 

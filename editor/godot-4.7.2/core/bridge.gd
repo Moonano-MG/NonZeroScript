@@ -255,7 +255,13 @@ func _execute(item: Variant) -> void:
 #  STATUS / CONFIG
 # ══════════════════════════════════════════════════════════════════════════
 func _load_adapter() -> Dictionary:
-	var path := "res://addons/nonzeroscript/adapter.json"
+	# adapter.json sits next to plugin.gd at the addon root. Resolve it from this
+	# script's own folder so a nested install (e.g. res://addons/addons/...) also
+	# works - a hardcoded res://addons/nonzeroscript/... path only works when the
+	# addon landed in exactly that one spot.
+	var script := get_script() as Script
+	var addon_dir := script.resource_path.get_base_dir().get_base_dir()
+	var path := addon_dir.path_join("adapter.json")
 	if not FileAccess.file_exists(path):
 		_log("adapter.json not found - the controller will not get this editor's instructions")
 		return {}

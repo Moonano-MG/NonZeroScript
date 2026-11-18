@@ -60,6 +60,7 @@ No cloud service is involved. Everything runs on your machine, and the only netw
 - **Three performance modes.** **极致性能 / eco** keeps the relay tiny (target: **under 30 MB RAM**, small logs, slow UI refresh), **平均 / balanced** is the default, and **最快速度 / turbo** polls hardest and keeps the longest results. One dropdown, no restart.
 - **Timeline memory.** Each browser AI has its own private chat context, so rotation would normally lose the plot. The controller writes every prompt, reply and tool result to `controller/data/memory/` and prepends a compact **memory brief** to the next turn, whichever browser gets it.
 - **A real editor toolset** — 29 commands for the Godot adapter (GDScript **and** C#): read/search/write/edit files, inspect and edit the open scene, add/remove nodes, instance scenes, change project settings, run and stop the game, read the editor log and capture a screenshot for the human.
+- **Chat wherever you work.** A shared **AI conversation** runs across the console's 对话 tab, the Godot dock's **AI 对话** panel and the bound AI webpage — one task stream, one timeline. The transcript stays clean: the protocol Non sends (system prompts, tool results, repair notes) and the model's raw command blocks are hidden and represented by small custom-icon chips, expandable when you want the raw text.
 - **ChatGPT support updated** for the current composer, alongside DeepSeek, Gemini, Kimi, GLM, Qwen, Meta AI and Arena.
 - **Free and open source.** GPL-3.0, no account, no subscription, no API key.
 
@@ -106,6 +107,8 @@ The same extension works in both browsers.
          ui/
    ```
 
+   > The final path **must** be `res://addons/nonzeroscript/plugin.cfg`, next to `project.godot`. Do **not** drop the folder into an `addons` directory that already exists inside your `addons/` — a doubled `res://addons/addons/nonzeroscript/` is wrong (Godot may report *"this script may contain code errors"* and disable the plugin). If you see that error, fix the folder location and re-enable.
+
 2. In Godot: **Project → Project Settings → Plugins** → enable **NonZeroScript**.
 3. A **NonZeroScript** dock appears on the right. It should show `● 已连接` (connected) once the controller is running.
 4. Check the URL in the dock: `http://127.0.0.1:8790`. If you changed the controller port, change it here too and click **应用**.
@@ -124,7 +127,7 @@ This walks through a complete first session.
 2. **Install the plugin.** Copy `addons/nonzeroscript` into the project (step 3 above), then enable it in *Project Settings → Plugins*.
 3. **Start the console.** Double-click `NonZeroScript.exe`. The native console opens and brings the relay up at `http://127.0.0.1:8790/`.
 4. **Connect a browser.** Load the extension, open **https://chat.deepseek.com** (recommended) or any supported AI, start a **new chat**, and click **启动** in the NonZeroScript bar above the input box. The bar turns green and says *已就绪 · 等待操控台派发任务*.
-5. **Queue a task.** In the console (or in the Godot dock's **AI 对话** panel), type something like:
+5. **Queue a task.** In the console's **对话** tab (or the **任务** tab, or the Godot dock's **AI 对话** panel), type something like:
 
    > Create a main menu for my project: a new scene at `res://scenes/main_menu.tscn` with a title label, a "Start" button and a "Quit" button. Put the script at `res://scripts/main_menu.gd`, make the buttons work, and set the project's main scene to the menu.
 

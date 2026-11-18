@@ -486,6 +486,24 @@ const ZSParse = (() => {
     );
   }
 
+  // A turn NonZeroScript injected into the page (always sent as a user turn):
+  // a tool result, an ERROR / repair note, a "Continue." nudge, or the startup
+  // re-anchoring line. Matched ONLY by the fixed shapes we emit - never by
+  // command-like keywords, since a repair note quotes a {"command": …} example
+  // that must NOT be read as a real command. The camouflage sweep hides these
+  // whole and represents them with a chip.
+  function isInjectedFeedback(txt) {
+    const t = String(txt || "").replace(/^\s+/, "");
+    return (
+      /^Output of '[^']*'[:：]/.test(t) ||
+      /^ERROR\b/.test(t) ||
+      /^\(System note:/.test(t) ||
+      /^Continue\.$/.test(t) ||
+      /^Do not run any command during startup\./.test(t) ||
+      /^Task finished\.$/.test(t)
+    );
+  }
+
   function countCommandShapes(txt) {
     const text = String(txt || "");
     let n = 0;
@@ -523,6 +541,6 @@ const ZSParse = (() => {
     findLuaStart, findLuaEnd, matchBrace, extractJson, normalizeCall, normalizeToolName,
     hasToolSignature: hasCommandShape, hasOpenToolBlock, parseToolCalls, salvageCutOff,
     toolNameFromText, hasCommandShape, diagnose, codeBlocks, cleanCodeCall,
-    codeLanguage, codeLanguageWarning,
+    codeLanguage, codeLanguageWarning, isInjectedFeedback,
   };
 })();
