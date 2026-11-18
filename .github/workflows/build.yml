@@ -110,11 +110,13 @@ jobs:
           } finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
             Stop-Process -Name controller -Force -ErrorAction SilentlyContinue
+            Remove-Item -Recurse -Force "out\app\data" -ErrorAction SilentlyContinue
           }
 
       - name: Smoke the native console (NonZeroScript.exe)
         shell: pwsh
         run: |
+          Remove-Item -Recurse -Force "out\app\data" -ErrorAction SilentlyContinue
           $app = Start-Process -FilePath "out\app\NonZeroScript.exe" -PassThru
           try {
             $ok = $false
@@ -133,7 +135,16 @@ jobs:
               $listening = [bool](Get-NetTCPConnection -LocalPort 8790 -State Listen -ErrorAction SilentlyContinue)
               $files = (Get-ChildItem "out\app" | Select-Object -ExpandProperty Name) -join ","
               $data = (Get-ChildItem "out\app\data" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ","
-              "::error::console smoke: no /api/status answer; app=$appCode relayProc=$relayProc listening8790=$listening out/app=[$files] data=[$data]"
+              $log = ""
+              if (Test-Path "out\app\data\relay.log") {
+                $log = (Get-Content "out\app\data\relay.log" -Raw -ErrorAction SilentlyContinue)
+                if ($null -eq $log) { $log = "<empty>" }
+                $log = $log.Replace("`r", " ").Replace("`n", " | ")
+                if ($log.Length -gt 400) { $log = $log.Substring(0, 400) }
+              } else {
+                $log = "<no relay.log>"
+              }
+              "::error::console smoke: no /api/status answer; app=$appCode relayProc=$relayProc listening8790=$listening out/app=[$files] data=[$data] relaylog=$log"
               exit 1
             }
             "smoke OK: NonZeroScript.exe brought up the relay and /api/status answered"
