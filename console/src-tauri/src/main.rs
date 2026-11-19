@@ -38,6 +38,10 @@ fn spawn_relay() {
     let _ = fs::create_dir_all(&log_dir);
     let mut cmd = Command::new(&relay);
     cmd.arg("--no-open");
+    // The console webview (CSP + UI base) and the extension default all point
+    // at 8790 - pin the relay to it so a stale data/settings.json port can
+    // never split the console from its own relay.
+    cmd.arg("--port").arg("8790");
     cmd.current_dir(&dir);
     cmd.stdin(Stdio::null());
     match fs::File::create(log_dir.join("relay.log")) {
