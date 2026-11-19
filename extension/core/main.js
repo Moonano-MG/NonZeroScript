@@ -40,6 +40,7 @@
     injectHideUntil: 0,
     injectPreUser: 0,
     injectedTexts: [],
+    injectedNorms: [], // precomputed normText() of injectedTexts - hot-path lookup
     chipped: new WeakMap(), // item -> { label, detail, body, category, phase, whole }
   };
   const state = {
@@ -66,6 +67,7 @@
     currentTurn: null,
     taskId: null,
     lastError: "",
+    netError: "",
     lastReply: "",
     turns: 0,
     pollTimer: null,
@@ -105,6 +107,7 @@
       bar.id = "zs-bar";
       bar.className = `zs-bar zs-prov-${P.id}`;
       bar.innerHTML = `
+        <span id="zs-grip" title="拖动移动 NonZeroScript 的位置（双击归位）">⠿</span>
         <span id="zs-brand" title="NonZeroScript · 多编辑器"><span class="zs-logo">&lt;/&gt;</span><b>NonZeroScript</b></span>
         <span id="zs-dot" class="zs-dot"></span>
         <span id="zs-state">正在连接操控台…</span>
@@ -113,6 +116,7 @@
         <button id="zs-console" class="zs-btn zs-btn-ghost" title="打开可视化操控台">操控台</button>
         <button id="zs-start" class="zs-btn zs-btn-main">启动</button>
         <button id="zs-stop" class="zs-btn zs-btn-stop" disabled>停止</button>
+        <button id="zs-toggle" class="zs-btn zs-btn-ghost" title="收起 / 展开">收起</button>
       `;
       root.appendChild(bar);
       const toast = document.createElement("div");
@@ -132,12 +136,104 @@
         stop: document.getElementById("zs-stop"),
         consoleBtn: document.getElementById("zs-console"),
         toast: document.getElementById("zs-toast"),
+        grip: document.getElementById("zs-grip"),
+        toggle: document.getElementById("zs-toggle"),
+        brand: document.getElementById("zs-brand"),
       };
       els.start.onclick = () => {
         if (!state.ready && !state.starting) startSession();
       };
       els.stop.onclick = () => stopSession("用户点击停止");
       els.consoleBtn.onclick = () => ZSNet.openConsole();
+      if (els.toggle) {
+        els.toggle.onclick = () => {
+          saveUiPrefs({ collapsed: !uiPrefs().collapsed });
+          applyCollapse();
+        };
+      }
+      if (els.brand) {
+        // A collapsed bar expands on a logo click - the tiny pill stays useful.
+        els.brand.onclick = () => {
+          if (uiPrefs().collapsed) {
+            saveUiPrefs({ collapsed: false });
+            applyCollapse();
+          }
+        };
+      }
+      initGrip();
+      applyCollapse();
+    }
+
+    // ── movable + collapsible bar (user preference, persisted) ────────────
+    const UI_KEY = "nzs-bar-ui";
+    function uiPrefs() {
+      try {
+        return JSON.parse(localStorage.getItem(UI_KEY) || "{}") || {};
+      } catch {
+        return {};
+      }
+    }
+    function saveUiPrefs(patch) {
+      try {
+        localStorage.setItem(UI_KEY, JSON.stringify(Object.assign(uiPrefs(), patch)));
+      } catch {}
+    }
+
+    function applyCollapse() {
+      if (!bar) return;
+      const collapsed = !!uiPrefs().collapsed;
+      bar.classList.toggle("zs-collapsed", collapsed);
+      if (els.toggle) els.toggle.textContent = collapsed ? "展开" : "收起";
+    }
+
+    function initGrip() {
+      const grip = els.grip;
+      if (!grip) return;
+      let drag = null;
+      grip.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        const rect = bar.getBoundingClientRect();
+        drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, moved: false };
+        try {
+          grip.setPointerCapture(e.pointerId);
+        } catch {}
+      });
+      grip.addEventListener("pointermove", (e) => {
+        if (!drag) return;
+        if (!drag.moved && Math.abs(e.movementX) + Math.abs(e.movementY) < 1) return;
+        drag.moved = true;
+        bar.classList.add("zs-dragging", "zs-bar-fixed");
+        bar.classList.remove("zs-bar-inline", "zs-bar-inside");
+        bar.style.right = "auto";
+        const x = Math.max(4, Math.min(window.innerWidth - 80, e.clientX - drag.dx));
+        const y = Math.max(4, Math.min(window.innerHeight - 44, e.clientY - drag.dy));
+        bar.style.left = `${Math.round(x)}px`;
+        bar.style.top = `${Math.round(y)}px`;
+      });
+      const end = () => {
+        if (!drag) return;
+        const moved = drag.moved;
+        drag = null;
+        bar.classList.remove("zs-dragging");
+        if (moved) {
+          saveUiPrefs({
+            fixed: true,
+            x: parseFloat(bar.style.left) || 0,
+            y: parseFloat(bar.style.top) || 0,
+          });
+          toast("已固定位置 · 双击 ⠿ 归位到输入框", 3500, "ok");
+        }
+      };
+      grip.addEventListener("pointerup", end);
+      grip.addEventListener("pointercancel", end);
+      grip.addEventListener("dblclick", () => {
+        saveUiPrefs({ fixed: false, x: 0, y: 0 });
+        bar.style.left = "";
+        bar.style.top = "";
+        bar.classList.remove("zs-bar-fixed");
+        mount();
+        toast("已归位", 2500, "ok");
+      });
     }
 
     // Put the bar where the site's composer lives. Providers export one of
@@ -145,6 +241,15 @@
     function mount() {
       if (!bar) return;
       if (bar.classList.contains("zs-bar-fixed")) return;
+      // User pinned the bar somewhere on the page: honour that position.
+      const prefs = uiPrefs();
+      if (prefs.fixed && prefs.x != null) {
+        bar.classList.remove("zs-bar-inline", "zs-bar-inside");
+        bar.classList.add("zs-bar-fixed");
+        bar.style.left = `${Math.round(Number(prefs.x) || 0)}px`;
+        bar.style.top = `${Math.round(Number(prefs.y) || 0)}px`;
+        return;
+      }
       try {
         const m = P.barMount ? P.barMount() : null;
         if (m && m.parent) {
@@ -185,7 +290,9 @@
       }
       // A composer can appear after document_idle (SPA route change): retry the
       // in-flow mount instead of leaving the bar in the fixed corner forever.
+      // A user-pinned bar (dragged) is never auto-moved.
       if (bar.classList.contains("zs-bar-fixed")) {
+        if (uiPrefs().fixed) return;
         bar.classList.remove("zs-bar-fixed");
         mount();
       }
@@ -235,7 +342,7 @@
       if (state.controllerOnline === false) {
         set({
           tone: "err", dot: "err",
-          text: "中转未运行 · 请先启动操控台",
+          text: state.netError || `中转未响应 · ${ZSNet.getBase()} · 请先启动操控台`,
           extra: extraBase,
           startLabel: "重试连接", startDisabled: false, stopDisabled: !state.busy,
         });
@@ -280,6 +387,18 @@
   // ════════════════════════════════════════════════════════════════════════
   //  CONNECTION / SESSION REGISTRATION
   // ════════════════════════════════════════════════════════════════════════
+  // One precise sentence per failure class: "中转未运行" was hiding the real
+  // cause (dead extension background, wrong port, host check) and sent users
+  // hunting in the wrong place.
+  function describeNetError(r) {
+    const base = ZSNet.getBase();
+    if (!r) return `中转未响应 · ${base}`;
+    if (r.extensionGone) return "扩展后台未响应 · 请在扩展管理页重新加载 NonZeroScript";
+    if (r.offline) return `中转未响应 · ${base} · 请启动操控台（NonZeroScript.exe）`;
+    if (r.status === 403) return `中转拒绝连接（来源校验）· ${base}`;
+    if (r.status) return `中转返回 HTTP ${r.status} · ${base}`;
+    return `连接失败：${String(r.error || "未知错误").slice(0, 90)} · ${base}`;
+  }
   function rememberSessionId() {
     try {
       let sid = sessionStorage.getItem(SID_KEY);
@@ -335,6 +454,7 @@
       if (r.settings) state.settings = r.settings;
       if (Array.isArray(r.tools)) state.tools = r.tools;
       state.lastError = "";
+      state.netError = "";
       log("registered", state.sessionId);
       schedulePoll(150);
       ZSNet.badge(true, "");
@@ -345,6 +465,7 @@
     } else {
       state.controllerOnline = false;
       state.lastError = "";
+      state.netError = describeNetError(r);
       state.sessionState = "registered";
       log("registration failed", r && r.error);
       scheduleReconnect(2000);
@@ -388,6 +509,7 @@
       state.controllerOnline = false;
       state.editorConnected = null;
       state.lastError = "";
+      state.netError = describeNetError(r);
       ui.render();
       ZSNet.badge(false, "!");
       scheduleReconnect(2500);
@@ -844,7 +966,7 @@
     if (/^Do not run any command during startup\./.test(t)) return "startup";
     if (/^Task finished\.$/.test(t)) return "result";
     const n = normText(t);
-    if (A.injectedTexts.some((x) => normText(x) === n)) return "task";
+    if (A.injectedNorms.indexOf(n) !== -1) return "task";
     return null;
   }
 
@@ -863,7 +985,11 @@
   // paints before the sweep can mask it.
   function typeAndSendInjected(text) {
     A.injectedTexts.push(String(text || ""));
-    if (A.injectedTexts.length > 60) A.injectedTexts.shift();
+    A.injectedNorms.push(normText(text));
+    if (A.injectedTexts.length > 60) {
+      A.injectedTexts.shift();
+      A.injectedNorms.shift();
+    }
     try {
       A.injectPreUser = P.userCount ? P.userCount() : 0;
     } catch {
@@ -993,15 +1119,19 @@
     item.__zsFor = normText(txt);
   }
 
-  function chipForCommand(item, txt, agentOnly) {
+  function chipForCommand(item, agentOnly) {
     const saved = A.chipped.get(item);
+    if (saved && !saved.whole && item.querySelector(".zs-chip")) {
+      // Chip already in place (the turn loop drives its state): nothing to do.
+      // Text extraction is the hot cost here, so this early-out matters.
+      return;
+    }
+    const txt = itemVisibleText(item);
     const tool = agentOnly ? "Agent" : ZSParse.toolNameFromText(txt || "");
     const label = tool || "命令";
     if (saved && saved.label === label && !saved.whole) {
       // Rebuild only if the site wiped the DOM chip.
-      if (!item.querySelector(".zs-chip")) {
-        decorateChip(item, saved);
-      }
+      decorateChip(item, saved);
       return;
     }
     decorateChip(item, {
@@ -1016,7 +1146,20 @@
     });
   }
 
+  // Cheap change signature: native textContent length + child count. The custom
+  // classifyText walk is much slower, so unchanged turns are skipped outright -
+  // the whole point of the perf pass, since a streaming reply mutates DOM on
+  // every token and the observer fires with it.
+  function sigOf(item) {
+    return `${item.childElementCount}:${(item.textContent || "").length}`;
+  }
+
   function sweepItem(item) {
+    const sig = sigOf(item);
+    if (item.__zsSig === sig && item.__zsScanned) return;
+    item.__zsSig = sig;
+    item.__zsScanned = true;
+
     const isUser = P.isUserItem(item);
     const txt = itemVisibleText(item);
     const kind = isUser ? injectedKind(txt) : null;
@@ -1064,7 +1207,7 @@
     }
     const already = !!item.querySelector(".zs-tool-hide");
     if (hidAny || agentCards || already) {
-      chipForCommand(item, txt, !hidAny && agentCards > 0);
+      chipForCommand(item, !hidAny && agentCards > 0);
     }
   }
 
@@ -1079,43 +1222,53 @@
     }
   }
 
+  // Rate-limited + visibility-aware: a streaming reply must not make the sweep
+  // its slave - at most one pass per SWEEP_MIN_MS, and nothing runs in a
+  // background tab (the visibilitychange hook converges on return).
   let sweepQueued = false;
+  let lastSweepAt = 0;
+  const SWEEP_MIN_MS = 400;
   function scheduleSweep() {
     if (sweepQueued) return;
     sweepQueued = true;
-    requestAnimationFrame(() => {
-      sweepQueued = false;
-      sweep();
-    });
+    const delay = Math.max(0, SWEEP_MIN_MS - (Date.now() - lastSweepAt));
+    setTimeout(() => {
+      requestAnimationFrame(() => {
+        sweepQueued = false;
+        if (document.hidden) return;
+        lastSweepAt = Date.now();
+        sweep();
+      });
+    }, delay);
   }
 
-  // Synchronous pre-hide: the raw text of a freshly injected turn must not
-  // paint for even one frame before the sweep builds its chip.
-  function preHideWholeItems() {
-    const items = P.allItems ? P.allItems() : [];
-    if (A.injectHideUntil && Date.now() < A.injectHideUntil) {
-      const users = items.filter((it) => P.isUserItem(it));
-      const last = users[users.length - 1];
-      if (
-        last &&
-        !last.classList.contains("zs-hidden") &&
-        users.length > (A.injectPreUser || 0)
-      ) {
-        last.classList.add("zs-hidden");
-        A.injectHideUntil = 0; // one-shot: this turn is now masked
-      }
-    }
-    for (const item of items) {
-      if (item.classList.contains("zs-hidden")) continue;
-      if (!P.isUserItem(item)) continue;
-      const txt = itemVisibleText(item);
-      if (injectedKind(txt)) item.classList.add("zs-hidden");
+  // The cheap half of the old preHideWholeItems: only the optimistic window for
+  // a turn WE just typed (armed in typeAndSendInjected). Pattern-based hiding
+  // lives in the sweep now - no full-DOM text walk per mutation burst.
+  function preHideArmed() {
+    if (!(A.injectHideUntil && Date.now() < A.injectHideUntil)) return;
+    const users = (P.allItems ? P.allItems() : []).filter((it) => P.isUserItem(it));
+    const last = users[users.length - 1];
+    if (
+      last &&
+      !last.classList.contains("zs-hidden") &&
+      users.length > (A.injectPreUser || 0)
+    ) {
+      last.classList.add("zs-hidden");
+      A.injectHideUntil = 0; // one-shot: this turn is now masked
     }
   }
 
   function camouflageStart() {
+    let moQueued = false;
     const mo = new MutationObserver(() => {
-      preHideWholeItems();
+      if (!moQueued) {
+        moQueued = true;
+        requestAnimationFrame(() => {
+          moQueued = false;
+          if (!document.hidden) preHideArmed();
+        });
+      }
       scheduleSweep();
     });
     mo.observe(document.documentElement, { childList: true, subtree: true });
@@ -1123,7 +1276,11 @@
     // mutation timing, so the camouflage always converges.
     setInterval(scheduleSweep, 1500);
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) scheduleSweep();
+      if (!document.hidden) {
+        preHideArmed();
+        lastSweepAt = 0; // converge immediately on return
+        scheduleSweep();
+      }
     });
     scheduleSweep();
   }

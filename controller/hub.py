@@ -146,6 +146,10 @@ class Hub:
         self.lock = threading.RLock()
         self.started = now()
         self.sessions: dict[str, Session] = {}
+        # Last time ANY browser extension contacted us (epoch seconds; 0 =
+        # never). One number answers "is the extension reaching the relay at
+        # all?" when the console shows no sessions.
+        self.ext_seen: float = 0.0
         self.editor = Editor()
         self.tasks: dict[str, Task] = {}
         self.task_order: list[str] = []
@@ -391,6 +395,7 @@ class Hub:
                 if p.get("label"):
                     s.label = str(p.get("label"))
             s.last_seen = now()
+            self.ext_seen = time.time()
             s.conversation = str(p.get("conversation") or s.conversation)
             # A page reload reports "registered", so it is never auto-ready.
             # A reconnect from a page that is still bootstrapped reports "ready"
@@ -418,6 +423,7 @@ class Hub:
             if not s:
                 return {"ok": False, "error": "unknown session; re-register", "code": "unknown_session"}
             s.last_seen = now()
+            self.ext_seen = time.time()
             if p.get("conversation"):
                 s.conversation = str(p["conversation"])
             incoming = str(p.get("state") or "").strip()
@@ -1038,6 +1044,11 @@ class Hub:
                 "version": __version__,
                 "engine": self.editor.engine or "Godot 4.7.2",
                 "editor_kind": "godot",
+                # Connection diagnostics: has ANY extension reached us, and when.
+                "extension": {
+                    "lastSeen": round(time.time() - self.ext_seen, 1) if self.ext_seen else None,
+                    "sessions": len(self.sessions),
+                },
                 "perf": {
                     "mode": mode,
                     "label": profile["label"],

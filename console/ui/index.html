@@ -82,6 +82,18 @@
     <section class="tab" id="tab-sessions">
       <div class="card">
         <div class="card-head">
+          <h2>浏览器连接</h2>
+          <span class="badge" id="ext-badge">等待扩展</span>
+        </div>
+        <div class="kv">
+          <div class="k">中转地址</div><div class="v mono" id="diag-url">http://127.0.0.1:8790</div>
+          <div class="k">扩展最近联系</div><div class="v" id="diag-ext">从未</div>
+        </div>
+        <p class="hint">连不上时按顺序检查：① 浏览器用“加载已解压”装好 <b>extension</b> 文件夹且无报错；② 打开支持的 AI 页面（ChatGPT / DeepSeek / Gemini / Kimi / GLM / Qwen / Meta AI / Arena），页面上应出现 NonZeroScript 状态栏；③ 点扩展图标，弹窗里的中转地址必须与上面完全一致；④ 点状态栏“启动”后会话才会“就绪”。如果状态栏显示“中转未响应”，就是扩展连不上上面这个地址。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
           <h2>浏览器会话</h2>
           <span class="muted" id="sessions-note">在 AI 页面点“启动”后会出现在这里</span>
           <span class="row tight" style="margin-left:auto">
