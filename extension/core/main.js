@@ -149,6 +149,7 @@
         els.toggle.onclick = () => {
           saveUiPrefs({ collapsed: !uiPrefs().collapsed });
           applyCollapse();
+          if (typeof suspendSweep === "function") suspendSweep(350);
         };
       }
       if (els.brand) {
@@ -166,6 +167,10 @@
 
     // ── movable + collapsible bar (user preference, persisted) ────────────
     const UI_KEY = "nzs-bar-ui";
+    // While the user drags (or right after a collapse toggle) the auto-mount
+    // timer and the camouflage sweep must NOT fight the interaction - that
+    // tug-of-war is what made moving the bar feel broken.
+    let dragging = false;
     function uiPrefs() {
       try {
         return JSON.parse(localStorage.getItem(UI_KEY) || "{}") || {};
@@ -193,34 +198,47 @@
       grip.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         const rect = bar.getBoundingClientRect();
-        drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, moved: false };
+        drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, moved: false, x: rect.left, y: rect.top };
+        // Pin it NOW: the 2.5s ensureMounted tick must not yank the bar back
+        // to the composer in the middle of a drag.
+        dragging = true;
+        if (typeof suspendSweep === "function") suspendSweep(4000);
         try {
           grip.setPointerCapture(e.pointerId);
         } catch {}
       });
       grip.addEventListener("pointermove", (e) => {
         if (!drag) return;
-        if (!drag.moved && Math.abs(e.movementX) + Math.abs(e.movementY) < 1) return;
-        drag.moved = true;
-        bar.classList.add("zs-dragging", "zs-bar-fixed");
-        bar.classList.remove("zs-bar-inline", "zs-bar-inside");
-        bar.style.right = "auto";
-        const x = Math.max(4, Math.min(window.innerWidth - 80, e.clientX - drag.dx));
-        const y = Math.max(4, Math.min(window.innerHeight - 44, e.clientY - drag.dy));
-        bar.style.left = `${Math.round(x)}px`;
-        bar.style.top = `${Math.round(y)}px`;
+        if (!drag.moved) {
+          drag.moved = true;
+          bar.classList.add("zs-dragging", "zs-bar-fixed");
+          bar.classList.remove("zs-bar-inline", "zs-bar-inside");
+          bar.style.right = "auto";
+          bar.style.left = "0px";
+          bar.style.top = "0px";
+          bar.style.willChange = "transform";
+        }
+        // transform-only movement: no per-move layout on the site's page.
+        drag.x = Math.max(4, Math.min(window.innerWidth - 80, e.clientX - drag.dx));
+        drag.y = Math.max(4, Math.min(window.innerHeight - 44, e.clientY - drag.dy));
+        bar.style.transform = `translate3d(${Math.round(drag.x)}px, ${Math.round(drag.y)}px, 0)`;
       });
       const end = () => {
         if (!drag) return;
         const moved = drag.moved;
+        const x = drag.x;
+        const y = drag.y;
         drag = null;
+        dragging = false;
         bar.classList.remove("zs-dragging");
+        bar.style.willChange = "";
         if (moved) {
-          saveUiPrefs({
-            fixed: true,
-            x: parseFloat(bar.style.left) || 0,
-            y: parseFloat(bar.style.top) || 0,
-          });
+          // Commit once: fixed left/top from here on (one reflow, at drop).
+          bar.style.transform = "";
+          bar.style.left = `${Math.round(x)}px`;
+          bar.style.top = `${Math.round(y)}px`;
+          saveUiPrefs({ fixed: true, x: Math.round(x), y: Math.round(y) });
+          if (typeof suspendSweep === "function") suspendSweep(350);
           toast("已固定位置 · 双击 ⠿ 归位到输入框", 3500, "ok");
         }
       };
@@ -230,6 +248,7 @@
         saveUiPrefs({ fixed: false, x: 0, y: 0 });
         bar.style.left = "";
         bar.style.top = "";
+        bar.style.transform = "";
         bar.classList.remove("zs-bar-fixed");
         mount();
         toast("已归位", 2500, "ok");
@@ -279,6 +298,7 @@
 
     function ensureMounted() {
       if (!root || !bar) return;
+      if (dragging) return; // mid-drag: never re-mount under the pointer
       if (!document.getElementById("zs-root")) {
         (document.body || document.documentElement).appendChild(root);
       }
@@ -1161,27 +1181,32 @@
     item.__zsScanned = true;
 
     const isUser = P.isUserItem(item);
-    const txt = itemVisibleText(item);
-    const kind = isUser ? injectedKind(txt) : null;
-    if (kind) {
-      if (item.__zsFor === normText(txt) && item.querySelector(".zs-chip")) {
-        item.classList.add("zs-hidden");
+    if (isUser) {
+      // Text extraction is the expensive walk - user turns only.
+      const txt = itemVisibleText(item);
+      const kind = injectedKind(txt);
+      if (kind) {
+        if (item.__zsFor === normText(txt) && item.querySelector(".zs-chip")) {
+          item.classList.add("zs-hidden");
+          return;
+        }
+        chipForInjected(item, kind, txt);
         return;
       }
-      chipForInjected(item, kind, txt);
+      if (item.classList.contains("zs-hidden") && !item.__zsFor && txt.trim()) {
+        // Optimistic pre-hide of a turn that turned out NOT to be ours.
+        item.classList.remove("zs-hidden");
+      }
+      if (item.__zsFor && item.__zsFor !== normText(txt)) {
+        resetDecoration(item); // recycled node
+      }
       return;
     }
-    if (item.classList.contains("zs-hidden") && !item.__zsFor && txt.trim()) {
-      // Optimistic pre-hide of a turn that turned out NOT to be ours.
-      item.classList.remove("zs-hidden");
-    }
-    if (item.__zsFor && item.__zsFor !== normText(txt)) {
-      resetDecoration(item); // recycled node
-    }
-    if (isUser) return;
 
     // Assistant turn: hide command blocks and site tool/agent cards, then
-    // represent them with one chip.
+    // represent them with one chip. No full-text extraction here - it runs on
+    // every streaming token and was the page-side stutter; the chip reads the
+    // text lazily only when it actually has to build.
     let hidAny = false;
     try {
       hidAny = !!P.findToolBlockSpot && !!P.findToolBlockSpot(item, null);
@@ -1227,7 +1252,12 @@
   // background tab (the visibilitychange hook converges on return).
   let sweepQueued = false;
   let lastSweepAt = 0;
+  let sweepPauseUntil = 0;
   const SWEEP_MIN_MS = 400;
+  function suspendSweep(ms) {
+    // SET (not extend): the drag-END call must shorten the drag-start pause.
+    sweepPauseUntil = Date.now() + (ms || 300);
+  }
   function scheduleSweep() {
     if (sweepQueued) return;
     sweepQueued = true;
@@ -1236,6 +1266,12 @@
       requestAnimationFrame(() => {
         sweepQueued = false;
         if (document.hidden) return;
+        const paused = sweepPauseUntil - Date.now();
+        if (paused > 0) {
+          // Dragging / just toggled the bar: let the interaction settle first.
+          setTimeout(scheduleSweep, paused + 30);
+          return;
+        }
         lastSweepAt = Date.now();
         sweep();
       });

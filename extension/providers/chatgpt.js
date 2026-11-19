@@ -859,13 +859,14 @@ const ZSProvider = (() => {
     for (const mc of replies) {
       // 1. Fenced code blocks carrying a command.
       mc.querySelectorAll(S.codeWrap).forEach((pre) => {
-        if (pre.closest(".zs-chip")) return;
+        if (pre.closest(".zs-chip") || pre.classList.contains("zs-tool-hide")) return;
         if (CMD_SHAPE.test(pre.textContent || "")) hide(pre, mc);
       });
       // 2. Bare top-level blocks with an inline command (no <pre> inside).
       const kids = [...mc.children];
       kids.forEach((el) => {
-        if (el.classList.contains("zs-chip") || el.querySelector(S.codeWrap)) return;
+        if (el.classList.contains("zs-chip") || el.classList.contains("zs-tool-hide")) return;
+        if (el.querySelector(S.codeWrap)) return;
         const t = el.textContent || "";
         if (t.length < 600 && CMD_SHAPE.test(t)) hide(el, null);
       });
@@ -877,16 +878,19 @@ const ZSProvider = (() => {
       // screen. Hide the RANGE: from the opener to the sibling holding the
       // closer (inclusive). Un-closed (still streaming) ⇒ hide to the end, so
       // there is no flash of raw code while it types.
+      // Already-hidden nodes are skipped everywhere: this function runs on
+      // every sweep of a streaming reply and re-testing hidden subtrees (whose
+      // textContent still matches!) made it O(kids²) per pass.
       let ranged = 0;
       for (let i = 0; i < kids.length; i++) {
         const el = kids[i];
-        if (el.classList.contains("zs-chip")) continue;
+        if (el.classList.contains("zs-chip") || el.classList.contains("zs-tool-hide")) continue;
         const t = el.textContent || "";
         if (!CMD_OPEN.test(t)) continue;
         if (CMD_CLOSE.test(t)) { hide(el, mc); ranged++; continue; } // all in one node
         for (let j = i; j < kids.length; j++) {
           const k = kids[j];
-          if (k.classList.contains("zs-chip")) continue;
+          if (k.classList.contains("zs-chip") || k.classList.contains("zs-tool-hide")) continue;
           hide(k, mc); ranged++;
           if (CMD_CLOSE.test(k.textContent || "")) { i = j; break; }
         }

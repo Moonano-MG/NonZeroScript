@@ -51,19 +51,28 @@
   }
 
   // When the console runs inside the native app (Tauri webview) the page is
-  // loaded from the app's custom scheme, not from the controller, so API calls
-  // need an absolute base. Served from the controller itself (browser
-  // fallback) the base stays empty and same-origin calls keep working.
+  // loaded from the app's own scheme - "tauri://localhost" on WebKit, and on
+  // Windows (WebView2) "http://tauri.localhost", which LOOKS like plain http
+  // but is the app's asset host, not the controller. Same-origin calls only
+  // make sense when the UI is actually served by the controller itself
+  // (browser fallback on 127.0.0.1 / localhost). Everything else must use the
+  // relay's absolute address. (The old rule keyed off the protocol alone and
+  // silently sent every request into the void on Windows.)
   const API_BASE =
-    location.protocol === "http:" || location.protocol === "https:"
+    (location.protocol === "http:" || location.protocol === "https:") &&
+    (location.hostname === "127.0.0.1" || location.hostname === "localhost")
       ? ""
       : "http://127.0.0.1:8790";
 
   async function api(path, body) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 65000);
+    // Call sites pass "api/..." and "/api/..." - normalize so an absolute base
+    // never glues into "...:8790api/..." (a silent black hole in the native
+    // window, where the base is non-empty).
+    const p = path.startsWith("/") ? path : `/${path}`;
     try {
-      const res = await fetch(API_BASE + path, {
+      const res = await fetch(API_BASE + p, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body || {}),
