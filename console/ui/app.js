@@ -84,6 +84,11 @@
   }
 
   // ── tabs ────────────────────────────────────────────────────────────────
+  function isTabActive(name) {
+    const s = document.getElementById(`tab-${name}`);
+    return !!(s && s.classList.contains("active"));
+  }
+
   function initTabs() {
     const buttons = document.querySelectorAll("#tabs button");
     const show = (name) => {
@@ -94,6 +99,11 @@
       try {
         history.replaceState(null, "", `#${name}`);
       } catch {}
+      // The log / memory panels only poll while visible - pull them in now.
+      if (name === "logs") {
+        loadLogs();
+        loadMemoryList();
+      }
     };
     for (const b of buttons) b.addEventListener("click", () => show(b.dataset.tab));
     const initial = (location.hash || "").replace("#", "");
@@ -307,6 +317,35 @@
     if (html === state.lastRender.sessions) return;
     state.lastRender.sessions = html;
     $("sessions").innerHTML = html;
+  }
+
+  // ── browser connection diagnostics ─────────────────────────────────────
+  function renderDiagnostics(st) {
+    const urlEl = $("diag-url");
+    if (!urlEl) return;
+    urlEl.textContent = `http://127.0.0.1:${st.port}`;
+    const ext = st.extension || {};
+    const sessions = (st.sessions || []).length;
+    const badge = $("ext-badge");
+    const seen = ext.lastSeen;
+    if (sessions > 0) {
+      badge.textContent = `已连接 · ${sessions} 个会话`;
+      badge.className = "badge ok";
+    } else if (seen == null) {
+      badge.textContent = "扩展从未连接";
+      badge.className = "badge err";
+    } else {
+      badge.textContent = "扩展连上过 · 暂无会话";
+      badge.className = "badge warn";
+    }
+    $("diag-ext").textContent =
+      seen == null
+        ? "从未（扩展还没有连上中转）"
+        : seen < 5
+          ? "刚刚"
+          : seen < 60
+            ? `${Math.round(seen)} 秒前`
+            : `${Math.round(seen / 60)} 分钟前`;
   }
 
   // ── editor ──────────────────────────────────────────────────────────────
@@ -560,10 +599,15 @@
       renderSessions(st);
       renderEditor(st);
       renderChat(st);
-      await loadLogs();
+      renderDiagnostics(st);
+      // Heavy DOM panels only refresh while their tab is visible: the log and
+      // memory lists used to rebuild every poll cycle no matter what the user
+      // was looking at.
+      const onLogsTab = isTabActive("logs");
+      if (onLogsTab) await loadLogs();
       state.tick++;
       if (!state.tools.length) loadTools();
-      if (state.tick === 1 || state.tick % 5 === 0) loadMemoryList();
+      if (onLogsTab && (state.tick === 1 || state.tick % 5 === 0)) loadMemoryList();
     } finally {
       state.busy = false;
     }

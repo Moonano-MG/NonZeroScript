@@ -236,6 +236,8 @@ All eight have a shared command protocol, so you can rotate between them freely.
 
 The console has its own status pills: **中转** (controller), **Godot** (editor plugin), **会话** (ready/total) and **端口**.
 
+The bar is **movable and collapsible**: drag the **⠿** handle to drop it anywhere on the page (double-click **⠿** to snap it back to the input box), and use **收起 / 展开** to shrink it down to just the logo. Both preferences are remembered.
+
 ## Commands the AI can use
 
 | Group | Commands |
@@ -311,6 +313,9 @@ Long results are capped (12 000 characters by default) so one command cannot eat
 
 **The console says Godot 未连接.**
 Open the project in Godot and enable the plugin under *Project Settings → Plugins*. Check the dock's URL matches the controller (`http://127.0.0.1:8790` by default) and click **重新连接**.
+
+**The console shows no browser sessions (浏览器连接 says 扩展从未连接).**
+Open the *会话 · 编辑器* tab — the **浏览器连接** card lists the exact address the relay answers on. Then check: the extension is loaded from the `extension` folder without errors; the AI page shows the NonZeroScript bar (kimi.com, chatgpt.com, chat.deepseek.com… are supported); the extension popup's address matches the card exactly; and you clicked **启动** on the page bar. The bar's own error line names the real cause (dead extension background, wrong port, or the relay not running).
 
 **The page bar says 中转未运行.**
 Start the console (`NonZeroScript.exe`). If the relay runs on another port, open the extension popup and set the same address there (and in the Godot dock).

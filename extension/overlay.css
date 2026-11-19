@@ -349,3 +349,27 @@
     color: #111827;
   }
 }
+
+/* ── movable + collapsible bar ───────────────────────────────────────── */
+#zs-grip {
+  flex: none;
+  cursor: grab;
+  opacity: 0.45;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 6px;
+  user-select: none;
+  touch-action: none;
+}
+#zs-grip:hover { opacity: 0.9; background: rgba(255, 255, 255, 0.08); }
+#zs-bar.zs-dragging { opacity: 0.92; cursor: moving; box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5); }
+
+#zs-toggle { flex: none; padding: 3px 8px; font-size: 10.5px; }
+
+/* Collapsed: only the grip, the logo and the expand button remain. */
+#zs-bar.zs-collapsed > *:not(#zs-grip):not(#zs-brand):not(#zs-toggle) { display: none !important; }
+#zs-bar.zs-collapsed #zs-brand b { display: none; }
+#zs-bar.zs-collapsed #zs-brand { padding-right: 2px; }
+#zs-bar.zs-collapsed #zs-spacer { display: none !important; }
+#zs-bar.zs-collapsed { gap: 5px; padding-top: 4px; padding-bottom: 4px; }
